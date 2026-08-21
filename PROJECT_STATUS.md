@@ -11,7 +11,7 @@ See `docs/tegata-concept.md` for the full spec. In short: a time-boxed access au
 
 ## Phases Completed
 - [x] Phase 0 — Repo Foundation
-- [ ] Phase 1 — Risk Engine + State Machine
+- [x] Phase 1 — Risk Engine + State Machine (reference implementation + tests; actual Xano Function Stack setup is a manual step you do — see `docs/xano-setup.md`)
 - [ ] Phase 2 — Conditional Document
 - [ ] Phase 3 — Signature & Verification
 - [ ] Phase 4 — AI Front-Door
@@ -29,6 +29,10 @@ See `docs/tegata-concept.md` for the full spec. In short: a time-boxed access au
 - Project name: Tegata (final)
 - All deliverables (README, docs, code, submission) in English — this is an international hackathon, not a national Indonesian one
 
+## Still Needs Confirmation (do not assume, not yet answered)
+- [ ] Is Foxit API access free for hackathon participants — no explicit info yet, need to email sponsor contact
+- [ ] Is Doctavian API access free — implied "credentials fast" but not explicitly stated as free
+
 ## What Phase 0 Actually Built
 - `packages/schema/tegata.schema.json` — canonical JSON Schema (single source of truth for data shapes)
 - `packages/schema/python/models.py` — Pydantic models mirroring the JSON Schema, tested working
@@ -42,10 +46,27 @@ See `docs/tegata-concept.md` for the full spec. In short: a time-boxed access au
 - `.github/workflows/phase-0.yml` — lints + runs both schema consistency test suites
 - `.github/workflows/phase-issue-sync.yml` — auto-marks an issue in-progress on push to a `phase/N-*` branch, and done when that branch's PR merges to `main`. Branch-name-to-phase-number extraction regex tested against multiple cases.
 
+## What Phase 1 Actually Built
+- `apps/agent/src/tegata_agent/risk_engine.py` — risk scoring reference implementation (resource sensitivity, duration, time-of-day, requester history factors → score → tier)
+- `apps/agent/src/tegata_agent/approval_rules.py` — derives required approver count + duration cap from risk tier, enforces the cap never grants more than what was requested
+- `apps/agent/src/tegata_agent/state_machine.py` — explicit valid-transition table for `WarrantStatus`, rejects invalid transitions (e.g. skipping approval, reviving a terminal state)
+- 44 passing unit tests across `test_risk_engine.py`, `test_approval_rules.py`, `test_state_machine.py` — including boundary cases (tier thresholds, duration capping, all invalid transition attempts) and a cross-check that state machine statuses match the schema enum
+- `docs/xano-setup.md` — step-by-step guide to manually replicate this exact logic inside Xano's visual Function Stack (Xano is no-code — this logic cannot be "pushed" as a file, someone has to build it in their dashboard by hand)
+- `.github/workflows/phase-1.yml` — lints + runs the full agent test suite
+
+## Important Clarification on Phase 1's Nature
+Xano itself has **not been touched** — no account created, no Function Stack built. What exists is a *tested specification* of exactly what that Function Stack needs to do, so the logic is correct before it's manually recreated in a no-code UI (which nobody but you can click through). Treat `docs/xano-setup.md` as a checklist for your next Codespace/browser session, not as something already done.
+
 ## Not Yet Done / Known Gaps
-- No actual application code yet (agent NLU, Xano calls, Foxit/Doctavian integration) — that starts at Phase 1.
-- `phase-sync.sh` has not been run against a real GitHub repo/`gh` CLI yet — only against a mock. First real run should be watched closely.
-- Sponsor credentials (Xano, Foxit, Doctavian) not yet requested — do this at the start of Phase 1/coding, not before (see README table).
+- Actual Xano account/tables/Function Stack — manual step, not started (guide ready in `docs/xano-setup.md`)
+- Doctavian and Foxit integration — Phase 2/3, not started
+- Sponsor credential emails — drafted, not yet confirmed sent (see below)
+- `phase-sync.sh` still not run against a real GitHub repo/`gh` CLI
+
+## Sponsor Outreach Status
+- [ ] Xano — self-serve signup via go.xano.co/devpost-challenge + coupon code, no email needed. Not yet done.
+- [ ] Doctavian — email drafted (see email-doctavian.txt provided alongside this package). Not yet confirmed sent.
+- [ ] Foxit — email drafted (see email-foxit.txt). Not yet confirmed sent. Try `.com` first, official rules literally list `.come`.
 
 ## Notes for the Next Session
-Phase 0 is done and tested. Start Phase 1 (Risk Engine + State Machine) next — see ROADMAP.md for exact scope and done-when criteria. Register for Xano and email Foxit/Doctavian for credentials at the start of that phase.
+Phase 0 + Phase 1 (reference logic + tests) are done. Next: either (a) manually set up Xano per `docs/xano-setup.md` and wire the agent to call real Xano endpoints instead of just local functions, or (b) jump ahead to Phase 2 (Doctavian) once credentials arrive, keeping the Xano wiring as a parallel task. Check `docs/xano-setup.md` test-parity note before considering Xano wiring "done" — the live Xano output must match the Python reference test cases exactly.
