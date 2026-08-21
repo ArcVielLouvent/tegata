@@ -1,0 +1,61 @@
+name: Phase Issue Sync
+
+on:
+  push:
+    branches:
+      - "phase/*"
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  mark-in-progress:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract phase number from branch name
+        id: phase
+        run: |
+          branch="${GITHUB_REF#refs/heads/}"
+          # expects phase/<N>-<short-name>
+          num=$(echo "$branch" | sed -n 's#^phase/\([0-9]\+\).*#\1#p')
+          if [[ -z "$num" ]]; then
+            echo "Branch '$branch' does not match phase/<N>-... pattern, skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "num=$num" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Mark phase in-progress
+        if: steps.phase.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/phase-sync.sh "${{ steps.phase.outputs.num }}" start
+
+  mark-done:
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract phase number from merged branch name
+        id: phase
+        run: |
+          branch="${{ github.event.pull_request.head.ref }}"
+          num=$(echo "$branch" | sed -n 's#^phase/\([0-9]\+\).*#\1#p')
+          if [[ -z "$num" ]]; then
+            echo "Branch '$branch' does not match phase/<N>-... pattern, skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "num=$num" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Mark phase done
+        if: steps.phase.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/phase-sync.sh "${{ steps.phase.outputs.num }}" done

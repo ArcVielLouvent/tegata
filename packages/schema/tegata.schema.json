@@ -1,0 +1,147 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Tegata Core Schema",
+  "definitions": {
+    "RiskTier": {
+      "type": "string",
+      "enum": ["low", "medium", "high"]
+    },
+    "WarrantStatus": {
+      "type": "string",
+      "enum": [
+        "requested",
+        "scored",
+        "pending_approval",
+        "signed",
+        "active",
+        "expired",
+        "revoked",
+        "expired_unapproved"
+      ],
+      "description": "expired_unapproved: approval window closed before all required signatures were collected. Distinct from expired, which means access was active and then naturally ran out."
+    },
+    "AccessRequest": {
+      "type": "object",
+      "required": ["resource", "reason", "requested_duration_minutes"],
+      "properties": {
+        "resource": {
+          "type": "string",
+          "description": "Must match an entry in the registered resource whitelist. Never trust free-text resource names directly."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "requested_duration_minutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1440,
+          "description": "Hard upper bound at the schema level, independent of any risk-based cap applied later."
+        },
+        "ticket_ref": {
+          "type": ["string", "null"],
+          "description": "Optional external ticket reference (e.g. JIRA-1234)."
+        },
+        "requested_by": {
+          "type": "string",
+          "description": "Requester identifier."
+        }
+      },
+      "additionalProperties": false
+    },
+    "RiskScore": {
+      "type": "object",
+      "required": ["score", "tier", "factors"],
+      "properties": {
+        "score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "tier": { "$ref": "#/definitions/RiskTier" },
+        "factors": {
+          "type": "object",
+          "description": "Breakdown of what contributed to the score, for auditability.",
+          "properties": {
+            "resource_sensitivity": { "type": "integer" },
+            "duration_factor": { "type": "integer" },
+            "time_of_day_factor": { "type": "integer" },
+            "requester_history_factor": { "type": "integer" }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ApprovalRequirement": {
+      "type": "object",
+      "required": ["required_approver_count", "max_duration_minutes"],
+      "properties": {
+        "required_approver_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2
+        },
+        "max_duration_minutes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The system-enforced cap, which may be lower than what was requested."
+        }
+      },
+      "additionalProperties": false
+    },
+    "Warrant": {
+      "type": "object",
+      "required": [
+        "warrant_id",
+        "request",
+        "risk_score",
+        "approval_requirement",
+        "status"
+      ],
+      "properties": {
+        "warrant_id": {
+          "type": "string",
+          "description": "Unique ID, used for anti-replay checks."
+        },
+        "request": { "$ref": "#/definitions/AccessRequest" },
+        "risk_score": { "$ref": "#/definitions/RiskScore" },
+        "approval_requirement": { "$ref": "#/definitions/ApprovalRequirement" },
+        "status": { "$ref": "#/definitions/WarrantStatus" },
+        "used": {
+          "type": "boolean",
+          "default": false,
+          "description": "True once this signed warrant has been redeemed for access. Must never be reusable. Defaults to false for every newly created warrant, so it is not part of the required set."
+        },
+        "document_url": {
+          "type": ["string", "null"]
+        },
+        "expires_at": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false
+    },
+    "AuditLogEntry": {
+      "type": "object",
+      "required": ["entry_id", "warrant_id", "event", "timestamp", "prev_hash", "hash"],
+      "properties": {
+        "entry_id": { "type": "string" },
+        "warrant_id": { "type": "string" },
+        "event": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "actor": { "type": ["string", "null"] },
+        "prev_hash": {
+          "type": ["string", "null"],
+          "description": "Hash of the previous audit log entry. Null only for the very first entry in the chain."
+        },
+        "hash": {
+          "type": "string",
+          "description": "Hash of this entry's content plus prev_hash. Used for tamper-evidence (Stretch C)."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
