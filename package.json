@@ -1,0 +1,20 @@
+{
+  "name": "tegata",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Time-boxed access authorization, sealed as a document. DevNetwork [API+Cloud+AI] Hackathon 2026.",
+  "workspaces": [
+    "apps/web",
+    "packages/schema/ts"
+  ],
+  "scripts": {
+    "test:schema-consistency": "ts-node tests/schema_consistency.test.ts",
+    "lint": "eslint . --ext .ts,.tsx"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.5.0",
+    "eslint": "^9.8.0"
+  }
+}
