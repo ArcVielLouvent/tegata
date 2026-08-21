@@ -23,3 +23,5 @@ build/
 # Editor
 .vscode/
 .idea/
+
+*.tar.gz
