@@ -1,0 +1,31 @@
+name: Phase 1 — Risk Engine + State Machine
+
+on:
+  push:
+    branches:
+      - "phase/1-*"
+      - main
+    paths:
+      - "apps/agent/**"
+      - "docs/xano-setup.md"
+      - ".github/workflows/phase-1.yml"
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-agent-logic:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Ruff lint
+        run: ruff check src tests
+      - name: Run unit tests (risk engine, approval rules, state machine)
+        run: pytest tests/ -v
