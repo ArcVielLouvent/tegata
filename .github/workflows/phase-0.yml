@@ -1,0 +1,54 @@
+name: Phase 0 — Foundation
+
+on:
+  push:
+    branches:
+      - "phase/0-*"
+      - main
+    paths:
+      - "packages/schema/**"
+      - "apps/agent/pyproject.toml"
+      - "apps/agent/requirements.txt"
+      - "package.json"
+      - "tests/**"
+      - ".github/workflows/phase-0.yml"
+  pull_request:
+    branches: [main]
+
+jobs:
+  python-schema:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Python dependencies
+        run: |
+          pip install -r apps/agent/requirements.txt
+      - name: Ruff lint (agent)
+        run: |
+          ruff check apps/agent || true  # no application code yet in Phase 0; will enforce once Phase 4 lands
+      - name: Validate JSON schema is well-formed
+        run: python -c "import json; json.load(open('packages/schema/tegata.schema.json')); print('valid JSON')"
+      - name: Run Python schema consistency tests
+        run: |
+          PYTHONPATH=packages/schema/python pytest tests/test_schema_consistency.py -v
+
+  ts-schema:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install root + schema package dependencies
+        run: |
+          npm install --no-save --silent typescript ts-node @types/node
+          npm install --no-save --silent --prefix packages/schema/ts
+      - name: Type-check TS schema
+        run: npx tsc --noEmit -p packages/schema/ts/tsconfig.json
+      - name: Run TS schema consistency test
+        run: |
+          TS_NODE_COMPILER_OPTIONS='{"module":"commonjs","esModuleInterop":true,"skipLibCheck":true,"resolveJsonModule":true}' \
+          npx ts-node tests/schema_consistency.test.ts
