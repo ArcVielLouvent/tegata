@@ -13,12 +13,26 @@ Usage:
     export DOCTAVIAN_API_KEY=edff22dbcc244bd0b709d7e632ce12e5
     export DOCTAVIAN_API_BASE_URL=https://demo.api.doctavian.com
     python scripts/verify_doctavian_template.py <template-url> <urn>
+
+What this script does:
+    1. Registers the template via create_template()
+    2. Generates TWO documents from it: one with required_approver_count=2,
+       one with required_approver_count=1
+    3. Downloads both generated documents (if deliveryMethod supports a
+       fetchable URL — check the response) and tells you to open both
+       and confirm the approval clause text is actually different
+    4. If they're NOT different, the native-Word-IF-field assumption in
+       template_builder.py is WRONG and needs to be replaced with
+       whatever tag syntax Doctavian's support team says to use instead
+       (ask them directly — you have an open thread with Kanwal).
 """
 import os
 import sys
 import uuid
 from pathlib import Path
 
+# Robust to being run from anywhere (repo root or apps/agent) — resolves
+# relative to this script's own location, not the caller's cwd.
 _AGENT_SRC = Path(__file__).resolve().parent.parent / "apps" / "agent" / "src"
 sys.path.insert(0, str(_AGENT_SRC))
 
@@ -34,12 +48,22 @@ def main():
     template_urn = sys.argv[2]
 
     api_key = os.environ.get("DOCTAVIAN_API_KEY")
+    access_token = os.environ.get("DOCTAVIAN_ACCESS_TOKEN")
     base_url = os.environ.get("DOCTAVIAN_API_BASE_URL", "https://demo.api.doctavian.com")
     if not api_key:
         print("Error: set DOCTAVIAN_API_KEY first.")
         sys.exit(1)
+    if not access_token:
+        print(
+            "Error: set DOCTAVIAN_ACCESS_TOKEN first "
+            "(get one via Postman's 'Get New Access Token' button — see "
+            "PROJECT_STATUS.md for why a custom PKCE flow can't do this)."
+        )
+        sys.exit(1)
 
-    client = DoctavianClient(DoctavianConfig(api_key=api_key, base_url=base_url))
+    client = DoctavianClient(
+        DoctavianConfig(api_key=api_key, base_url=base_url, access_token=access_token)
+    )
 
     print("Step 1: registering template...")
     template = client.create_template(

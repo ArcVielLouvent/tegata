@@ -34,6 +34,16 @@ class DoctavianConfig:
     api_key: str
     base_url: str = "https://demo.api.doctavian.com"
     timeout_seconds: float = 30.0
+    access_token: str | None = None
+    """OAuth 2.0 bearer token (Microsoft Entra ID, per their Quickstart docs).
+    Every real call needs both api_key AND this token in Authorization.
+    This token is short-lived (their docs: rejected within ~2 minutes of
+    expiry) and currently obtained MANUALLY via Postman's "Get New Access
+    Token" button — their OAuth client is configured with a Postman-only
+    redirect_uri (oauth.pstmn.io), so a custom PKCE flow in our own code
+    cannot complete the login step. Re-generate and update .env when it
+    expires; do not build a full PKCE flow into this client under hackathon
+    time constraints unless there's time left over as a stretch."""
 
 
 @dataclass
@@ -52,11 +62,14 @@ class DoctavianClient:
         self.session = session or requests.Session()
 
     def _headers(self) -> dict[str, str]:
-        return {
+        headers = {
             "x-api-key": self.config.api_key,
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
+        if self.config.access_token:
+            headers["Authorization"] = f"Bearer {self.config.access_token}"
+        return headers
 
     def _post(self, path: str, body: dict) -> dict:
         url = f"{self.config.base_url}{path}"

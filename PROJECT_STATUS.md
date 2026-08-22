@@ -67,7 +67,18 @@ See `docs/tegata-concept.md` for the full spec. In short: a time-boxed access au
 - Doctavian's public "Elements Reference" template-syntax guide is a JS-rendered page Claude could not read
 - Their API's `docxLoadOptions: {"PreserveUnsupportedFeatures": true}` hints at real docx feature support, but this is inference, not confirmation
 
-**You must run `scripts/verify_doctavian_template.py` in your Codespace before trusting this for the demo.** If the IF field does NOT render differently for high vs. low risk, reply to Kanwal's email thread and ask directly what tag syntax to use, then update `template_builder.py` accordingly (the rest of the pipeline — risk scoring, variable mapping, Doctavian client — does not need to change, only how the template itself expresses the condition).
+**Blocked as of 2026-08-22 — confirmed external blocker, not our error.** Read Doctavian's official Get Started + Quickstart docs in full (not just the OpenAPI spec/Postman collection). Their docs explicitly state every call requires BOTH `x-api-key` AND an OAuth 2.0 bearer token obtained via Postman's "Get New Access Token" (Microsoft/Google login tied to the Doctavian account itself, not a generic personal login). Kanwal's onboarding email only provided the `x-api-key` and described it as sufficient on its own — no OAuth client credentials or access token were provided for the "Team Tegata" demo account. Logging into demo.portal.doctavian.com with a personal Google account reaches the product UI (envelope creation, etc.) but does not yield an API-usable access token — that's a separate system.
+
+Diagnostic results (curl against the real API), consistent with the documented requirement:
+| Headers sent | Error returned |
+|---|---|
+| `x-api-key` only | `AUTHORIZATION_ERROR`: "Authorization header is missing." |
+| `Authorization` only (any value) | `AUTHORIZATION_ERROR`: "Unauthorized ApiKeyNotFound" |
+| Both `x-api-key` + `Authorization` (plain or `Bearer`) | `AUTHORIZATION_ERROR`: "Google token is invalid or expired." |
+
+Follow-up email sent to Kanwal (kanwal.roshi@mavenmule.com), citing their own Quickstart docs directly, requesting either OAuth client credentials (client-credentials grant) or a way to obtain a valid access token for the demo account. **Waiting on response — do not block other phases on this.**
+
+Once unblocked: run `scripts/verify_doctavian_template.py` for real, confirm the Word IF field renders differently for high vs low risk. If it does NOT, the fix is isolated to `template_builder.py` only.
 
 ## Sponsor Credentials Status (update from earlier)
 - [x] Doctavian — received. API key + demo base URL in `.env` (not committed). Postman collection used to build accurate client code.

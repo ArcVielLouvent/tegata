@@ -17,6 +17,41 @@ def client():
 
 
 @responses_lib.activate
+def test_headers_include_bearer_token_when_provided():
+    client_with_token = DoctavianClient(
+        DoctavianConfig(api_key="test-key", base_url=BASE_URL, access_token="fake-jwt-token")
+    )
+    responses_lib.add(
+        responses_lib.POST,
+        f"{BASE_URL}/v1/documents/template/create",
+        json={"result": {"data": {"documentTemplate": {"documentTemplateGuid": "x"}}}},
+        status=200,
+    )
+    client_with_token.create_template(
+        name="x", description="x", title="x", urn="x", url="https://storage.example.com/x.docx"
+    )
+    sent = responses_lib.calls[0].request
+    assert sent.headers["x-api-key"] == "test-key"
+    assert sent.headers["Authorization"] == "Bearer fake-jwt-token"
+
+
+@responses_lib.activate
+def test_headers_omit_authorization_when_no_token_provided(client):
+    # `client` fixture has no access_token set — Authorization should be absent
+    responses_lib.add(
+        responses_lib.POST,
+        f"{BASE_URL}/v1/documents/template/create",
+        json={"result": {"data": {"documentTemplate": {"documentTemplateGuid": "x"}}}},
+        status=200,
+    )
+    client.create_template(
+        name="x", description="x", title="x", urn="x", url="https://storage.example.com/x.docx"
+    )
+    sent = responses_lib.calls[0].request
+    assert "Authorization" not in sent.headers
+
+
+@responses_lib.activate
 def test_create_template_success_matches_real_response_shape(client):
     # This is the exact response body Doctavian's real API returns, per
     # the Postman collection example.
