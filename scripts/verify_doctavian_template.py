@@ -12,24 +12,26 @@ literal text.
 Usage:
     export DOCTAVIAN_API_KEY=edff22dbcc244bd0b709d7e632ce12e5
     export DOCTAVIAN_API_BASE_URL=https://demo.api.doctavian.com
-    # You also need somewhere to host the generated .docx template so
-    # Doctavian can fetch it by URL (their "url" field expects a
-    # reachable link, not a file upload in this API version). Options:
-    #   - Push it to a public GitHub raw URL in this repo
-    #   - Use any temporary file host you trust
-    python scripts/verify_doctavian_template.py <template-url> <urn>
+    export DOCTAVIAN_ACCESS_TOKEN=<paste from Postman's "Get New Access Token">
+
+    python scripts/verify_doctavian_template.py docs/templates/tegata-warrant.docx
 
 What this script does:
-    1. Registers the template via create_template()
+    0. Uploads the .docx to Doctavian's own Storage (POST
+       /v1/documents/document/upload). This step exists because an
+       external URL (e.g. GitHub raw) was confirmed via real testing to
+       fail with 500 GET_FILE_FROM_STORAGE_FAILED — loadMethod="Storage"
+       means the file bytes must actually live in Doctavian's storage,
+       the url/path fields are not a fetchable external reference.
+    1. Registers the template via create_template(), using the storage id
+       from step 0.
     2. Generates TWO documents from it: one with required_approver_count=2,
-       one with required_approver_count=1
-    3. Downloads both generated documents (if deliveryMethod supports a
-       fetchable URL — check the response) and tells you to open both
-       and confirm the approval clause text is actually different
+       one with required_approver_count=1.
+    3. Tells you what to check manually: open both generated documents and
+       confirm the approval clause text is actually different.
     4. If they're NOT different, the native-Word-IF-field assumption in
        template_builder.py is WRONG and needs to be replaced with
-       whatever tag syntax Doctavian's support team says to use instead
-       (ask them directly — you have an open thread with Kanwal).
+       whatever tag syntax Doctavian's support team says to use instead.
 """
 import os
 import sys
@@ -45,12 +47,14 @@ from tegata_agent.doctavian_client import DoctavianClient, DoctavianConfig, Temp
 
 
 def main():
-    if len(sys.argv) != 3:
-        print("Usage: python scripts/verify_doctavian_template.py <template-url> <urn>")
+    if len(sys.argv) != 2:
+        print("Usage: python scripts/verify_doctavian_template.py <path-to-local-docx>")
         sys.exit(1)
 
-    template_url = sys.argv[1]
-    template_urn = sys.argv[2]
+    docx_path = Path(sys.argv[1])
+    if not docx_path.exists():
+        print(f"Error: file not found: {docx_path}")
+        sys.exit(1)
 
     api_key = os.environ.get("DOCTAVIAN_API_KEY")
     access_token = os.environ.get("DOCTAVIAN_ACCESS_TOKEN")
@@ -61,8 +65,7 @@ def main():
     if not access_token:
         print(
             "Error: set DOCTAVIAN_ACCESS_TOKEN first "
-            "(get one via Postman's 'Get New Access Token' button — see "
-            "PROJECT_STATUS.md for why a custom PKCE flow can't do this)."
+            "(get one via Postman's 'Get New Access Token' button)."
         )
         sys.exit(1)
 
@@ -70,14 +73,20 @@ def main():
         DoctavianConfig(api_key=api_key, base_url=base_url, access_token=access_token)
     )
 
-    print("Step 1: registering template...")
+    print(f"Step 0: uploading {docx_path.name} to Doctavian's Storage...")
+    uploaded = client.upload_document(docx_path)
+    print(f"  Uploaded: {uploaded}")
+    storage_id = uploaded["id"]
+
+    template_urn = str(uuid.uuid4())
+    print(f"\nStep 1: registering template (urn={template_urn})...")
     template = client.create_template(
         name="Tegata Warrant (verification)",
         description="Verification run — safe to delete after.",
         title="Warrant",
         urn=template_urn,
-        url=template_url,
-        path="templates/tegata-warrant-verify.docx",
+        url=storage_id,
+        path=storage_id,
     )
     print(f"  Registered: {template['documentTemplateGuid']}")
 
@@ -121,8 +130,8 @@ def main():
 
     print("\n" + "=" * 70)
     print("MANUAL STEP REQUIRED:")
-    print("Open both generated documents (URNs above / check your Doctavian")
-    print("storage/portal for the files) and confirm:")
+    print("Open both generated documents (check the 'urn' in each result")
+    print("above, or your Doctavian portal) and confirm:")
     print("  - The HIGH-risk doc says 'TWO approvers'")
     print("  - The LOW-risk doc says 'ONE approver'")
     print("If both say the same thing, the native Word IF field is NOT being")
