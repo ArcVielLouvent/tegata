@@ -31,13 +31,17 @@ What this script does:
        whatever tag syntax Doctavian's support team says to use instead
        (ask them directly — you have an open thread with Kanwal).
 """
+import os
 import sys
 import uuid
+from pathlib import Path
 
-sys.path.insert(0, "src")
+# Robust to being run from anywhere (repo root or apps/agent) — resolves
+# relative to this script's own location, not the caller's cwd.
+_AGENT_SRC = Path(__file__).resolve().parent.parent / "apps" / "agent" / "src"
+sys.path.insert(0, str(_AGENT_SRC))
 
 from tegata_agent.doctavian_client import DoctavianClient, DoctavianConfig, TemplateVariable  # noqa: E402
-import os  # noqa: E402
 
 
 def main():
@@ -49,12 +53,22 @@ def main():
     template_urn = sys.argv[2]
 
     api_key = os.environ.get("DOCTAVIAN_API_KEY")
+    access_token = os.environ.get("DOCTAVIAN_ACCESS_TOKEN")
     base_url = os.environ.get("DOCTAVIAN_API_BASE_URL", "https://demo.api.doctavian.com")
     if not api_key:
         print("Error: set DOCTAVIAN_API_KEY first.")
         sys.exit(1)
+    if not access_token:
+        print(
+            "Error: set DOCTAVIAN_ACCESS_TOKEN first "
+            "(get one via Postman's 'Get New Access Token' button — see "
+            "PROJECT_STATUS.md for why a custom PKCE flow can't do this)."
+        )
+        sys.exit(1)
 
-    client = DoctavianClient(DoctavianConfig(api_key=api_key, base_url=base_url))
+    client = DoctavianClient(
+        DoctavianConfig(api_key=api_key, base_url=base_url, access_token=access_token)
+    )
 
     print("Step 1: registering template...")
     template = client.create_template(
