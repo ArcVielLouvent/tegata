@@ -13,6 +13,7 @@ seen in their OpenAPI spec).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 import requests
@@ -102,6 +103,63 @@ class DoctavianClient:
             )
 
         return data
+
+    def upload_document(
+        self, file_path: str | Path, storage_type: str = "document-template"
+    ) -> dict:
+        """Uploads a physical file to Doctavian's Storage. Returns the parsed
+        result.data.files[0] object, e.g. {"id": "<guid>", "fileName": "..."}.
+
+        The returned "id" is what create_template's url/path fields need to
+        reference — NOT an arbitrary external URL (confirmed: an external
+        GitHub raw URL fails with 500 GET_FILE_FROM_STORAGE_FAILED when
+        loadMethod is "Storage", per real API testing).
+
+        Accepted extensions per the real API: .docx, .xlsx, .doc, .xls
+        (case-sensitive). Max size: 20MB production, 10MB staging.
+        """
+        file_path = Path(file_path)
+        url = f"{self.config.base_url}/v1/documents/document/upload"
+        headers = {
+            "x-api-key": self.config.api_key,
+            "Accept": "application/json",
+        }
+        if self.config.access_token:
+            headers["Authorization"] = f"Bearer {self.config.access_token}"
+        # NOTE: deliberately no Content-Type header here — requests sets the
+        # correct multipart/form-data boundary automatically when `files=`
+        # is used. Setting it manually breaks the boundary.
+
+        with open(file_path, "rb") as f:
+            files = {"file": (file_path.name, f)}
+            headers["X-Storage-Type"] = storage_type
+            response = self.session.post(
+                url, files=files, headers=headers, timeout=self.config.timeout_seconds
+            )
+
+        try:
+            data = response.json() if response.content else {}
+        except ValueError:
+            data = {}
+
+        if response.status_code >= 400:
+            if "error" in data:
+                inner = data["error"]
+                first_inner = (inner.get("innerErrors") or [{}])[0]
+                raise DoctavianAPIError(
+                    status_code=response.status_code,
+                    code=first_inner.get("code"),
+                    message=first_inner.get("userMessage") or inner.get("message", "Unknown error"),
+                    raw=data,
+                )
+            raise DoctavianAPIError(
+                status_code=response.status_code,
+                code=data.get("code"),
+                message=data.get("message", "Unknown error"),
+                raw=data,
+            )
+
+        return data["result"]["data"]["files"][0]
 
     def create_template(
         self,

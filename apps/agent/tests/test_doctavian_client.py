@@ -52,6 +52,112 @@ def test_headers_omit_authorization_when_no_token_provided(client):
 
 
 @responses_lib.activate
+def test_upload_document_success_matches_real_response_shape(client, tmp_path):
+    fake_docx = tmp_path / "quarterly-report.docx"
+    fake_docx.write_bytes(b"fake docx bytes")
+
+    responses_lib.add(
+        responses_lib.POST,
+        f"{BASE_URL}/v1/documents/document/upload",
+        json={
+            "result": {
+                "data": {
+                    "files": [
+                        {
+                            "id": "7c2f5a91-3e44-4b0d-a6f8-1b2c3d4e5f60",
+                            "fileName": "quarterly-report.docx",
+                        }
+                    ]
+                },
+                "statusCode": 201,
+                "message": "Created",
+            },
+            "origin": "https://app.mavenmule.com",
+            "operationId": "3a4b5c6d7e8f90112233445566778899",
+        },
+        status=201,
+    )
+
+    result = client.upload_document(fake_docx)
+
+    assert result["id"] == "7c2f5a91-3e44-4b0d-a6f8-1b2c3d4e5f60"
+    assert result["fileName"] == "quarterly-report.docx"
+
+    sent = responses_lib.calls[0].request
+    assert sent.headers["x-api-key"] == "test-key"
+    assert sent.headers["X-Storage-Type"] == "document-template"
+    assert "multipart/form-data" in sent.headers["Content-Type"]
+
+
+@responses_lib.activate
+def test_upload_document_invalid_format_matches_real_error_shape(client, tmp_path):
+    fake_pdf = tmp_path / "notes.pdf"
+    fake_pdf.write_bytes(b"fake pdf bytes")
+
+    responses_lib.add(
+        responses_lib.POST,
+        f"{BASE_URL}/v1/documents/document/upload",
+        json={
+            "error": {
+                "statusCode": 400,
+                "message": "Unsupported format. Allowed: .docx,.xlsx,.doc,.xls",
+                "innerErrors": [
+                    {
+                        "code": "INVALID_TEMPLATE_FORMAT",
+                        "message": "Unsupported format. Allowed: .docx,.xlsx,.doc,.xls",
+                        "userMessage": (
+                            "This document format isn't supported. "
+                            "Upload a .docx, .xlsx, .doc or .xls file."
+                        ),
+                    }
+                ],
+            },
+        },
+        status=400,
+    )
+
+    with pytest.raises(DoctavianAPIError) as exc_info:
+        client.upload_document(fake_pdf)
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.code == "INVALID_TEMPLATE_FORMAT"
+
+
+@responses_lib.activate
+def test_upload_document_server_error_matches_real_error_shape(client, tmp_path):
+    fake_docx = tmp_path / "file.docx"
+    fake_docx.write_bytes(b"fake bytes")
+
+    responses_lib.add(
+        responses_lib.POST,
+        f"{BASE_URL}/v1/documents/document/upload",
+        json={
+            "error": {
+                "statusCode": 500,
+                "message": "Failed to persist the uploaded file to storage.",
+                "innerErrors": [
+                    {
+                        "code": "FILE_UPLOAD_FAILED",
+                        "message": "Failed to persist the uploaded file to storage.",
+                        "userMessage": (
+                            "Something went wrong while uploading. "
+                            "Please try again or contact support."
+                        ),
+                    }
+                ],
+            },
+        },
+        status=500,
+    )
+
+    with pytest.raises(DoctavianAPIError) as exc_info:
+        client.upload_document(fake_docx)
+
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.code == "FILE_UPLOAD_FAILED"
+
+
+@responses_lib.activate
 def test_create_template_success_matches_real_response_shape(client):
     # This is the exact response body Doctavian's real API returns, per
     # the Postman collection example.
