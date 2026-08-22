@@ -67,7 +67,18 @@ See `docs/tegata-concept.md` for the full spec. In short: a time-boxed access au
 - Doctavian's public "Elements Reference" template-syntax guide is a JS-rendered page Claude could not read
 - Their API's `docxLoadOptions: {"PreserveUnsupportedFeatures": true}` hints at real docx feature support, but this is inference, not confirmation
 
-**You must run `scripts/verify_doctavian_template.py` in your Codespace before trusting this for the demo.** If the IF field does NOT render differently for high vs. low risk, reply to Kanwal's email thread and ask directly what tag syntax to use, then update `template_builder.py` accordingly (the rest of the pipeline — risk scoring, variable mapping, Doctavian client — does not need to change, only how the template itself expresses the condition).
+**Blocked as of 2026-08-22 — this is an external blocker, not incomplete work on our side.** Attempted to run `scripts/verify_doctavian_template.py` against the real demo account. Diagnosed via curl (see below) that `POST /v1/documents/template/create` requires BOTH `x-api-key` AND a real Google OAuth token in `Authorization` — the demo account Kanwal set up was described as "just pass x-api-key" but the actual endpoint still enforces the full OAuth flow from their customer-facing docs (which explicitly says personal accounts aren't supported for that flow).
+
+Diagnostic results (curl against the real API):
+| Headers sent | Error returned |
+|---|---|
+| `x-api-key` only | `AUTHORIZATION_ERROR`: "Authorization header is missing." |
+| `Authorization` only (any value) | `AUTHORIZATION_ERROR`: "Unauthorized ApiKeyNotFound" |
+| Both `x-api-key` + `Authorization` (plain or `Bearer`) | `AUTHORIZATION_ERROR`: "Google token is invalid or expired." |
+
+Follow-up email sent to Kanwal (kanwal.roshi@mavenmule.com) with this exact table, asking for either a way to get a valid token without full Google OAuth signup, or a different endpoint intended for the x-api-key-only flow. **Waiting on response — do not block other phases on this.**
+
+Once unblocked: run `scripts/verify_doctavian_template.py` for real, confirm the Word IF field renders differently for high vs low risk. If it does NOT, the fix is isolated to `template_builder.py` only.
 
 ## Sponsor Credentials Status (update from earlier)
 - [x] Doctavian — received. API key + demo base URL in `.env` (not committed). Postman collection used to build accurate client code.
