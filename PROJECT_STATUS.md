@@ -12,6 +12,7 @@ See `docs/tegata-concept.md` for the full spec. In short: a time-boxed access au
 ## Phases Completed
 - [x] Phase 0 — Repo Foundation
 - [x] Phase 1 — Risk Engine + State Machine (reference implementation + tests; actual Xano Function Stack setup is a manual step you do — see `docs/xano-setup.md`)
+- [x] Phase 2 — Conditional Document (Doctavian) — see detailed status below, one critical assumption still needs live verification
 - [ ] Phase 2 — Conditional Document
 - [ ] Phase 3 — Signature & Verification
 - [ ] Phase 4 — AI Front-Door
@@ -54,19 +55,30 @@ See `docs/tegata-concept.md` for the full spec. In short: a time-boxed access au
 - `docs/xano-setup.md` — step-by-step guide to manually replicate this exact logic inside Xano's visual Function Stack (Xano is no-code — this logic cannot be "pushed" as a file, someone has to build it in their dashboard by hand)
 - `.github/workflows/phase-1.yml` — lints + runs the full agent test suite
 
-## Important Clarification on Phase 1's Nature
-Xano itself has **not been touched** — no account created, no Function Stack built. What exists is a *tested specification* of exactly what that Function Stack needs to do, so the logic is correct before it's manually recreated in a no-code UI (which nobody but you can click through). Treat `docs/xano-setup.md` as a checklist for your next Codespace/browser session, not as something already done.
+## What Phase 2 Actually Built
+- `apps/agent/src/tegata_agent/template_builder.py` — generates the Tegata warrant `.docx` using **native Word IF merge fields** for the approval clause (branches on `required_approver_count`), not a guessed proprietary tag syntax
+- `apps/agent/src/tegata_agent/doctavian_client.py` — `DoctavianClient` with `create_template()` and `generate_document()`, matching the **exact** request/response shapes from Doctavian's real Postman collection (not the partial OpenAPI spec, which we could only fetch part of)
+- `apps/agent/src/tegata_agent/warrant_variables.py` — maps Phase 1's `RiskScore`/`ApprovalRequirement` output into Doctavian's `TemplateVariable` list
+- `scripts/verify_doctavian_template.py` — a script to run in your Codespace (not runnable from Claude's sandbox — network egress there can't reach `demo.api.doctavian.com`) that registers the template and generates one high-risk + one low-risk document for you to manually confirm the approval clause text actually differs
+- 20 new tests (75 total across the repo now... actually 55 in apps/agent alone), including an end-to-end test proving Phase 1 + Phase 2 together produce a genuinely different `required_approver_count` for high vs. low risk scenarios — this is the test backing "Wow Moment #1" in the concept doc
+
+## CRITICAL — Unverified Assumption in Phase 2
+**The whole conditional-document mechanism rests on one assumption that has NOT been tested against the real Doctavian API yet:** that their document-generation engine actually evaluates a native Word "IF" merge field as real conditional logic. This assumption exists because:
+- Doctavian's public "Elements Reference" template-syntax guide is a JS-rendered page Claude could not read
+- Their API's `docxLoadOptions: {"PreserveUnsupportedFeatures": true}` hints at real docx feature support, but this is inference, not confirmation
+
+**You must run `scripts/verify_doctavian_template.py` in your Codespace before trusting this for the demo.** If the IF field does NOT render differently for high vs. low risk, reply to Kanwal's email thread and ask directly what tag syntax to use, then update `template_builder.py` accordingly (the rest of the pipeline — risk scoring, variable mapping, Doctavian client — does not need to change, only how the template itself expresses the condition).
+
+## Sponsor Credentials Status (update from earlier)
+- [x] Doctavian — received. API key + demo base URL in `.env` (not committed). Postman collection used to build accurate client code.
+- [ ] Foxit — received eSign API dashboard access (client_id/client_secret). Not yet wired into code (Phase 3).
+- [ ] Xano — not yet started (self-serve, no blocker, needs a new API Group created once we start Phase 3 wiring)
 
 ## Not Yet Done / Known Gaps
-- Actual Xano account/tables/Function Stack — manual step, not started (guide ready in `docs/xano-setup.md`)
-- Doctavian and Foxit integration — Phase 2/3, not started
-- Sponsor credential emails — drafted, not yet confirmed sent (see below)
+- Doctavian template not yet actually uploaded/reachable by URL for the real API to fetch (their `create_template` needs a `url` pointing to hosted storage — decide where to host the generated `.docx`: a public GitHub raw link in this repo is the simplest option)
+- Real Xano account/tables/Function Stack — manual step, not started (guide ready in `docs/xano-setup.md`)
+- Foxit integration — Phase 3, not started
 - `phase-sync.sh` still not run against a real GitHub repo/`gh` CLI
 
-## Sponsor Outreach Status
-- [ ] Xano — self-serve signup via go.xano.co/devpost-challenge + coupon code, no email needed. Not yet done.
-- [ ] Doctavian — email drafted (see email-doctavian.txt provided alongside this package). Not yet confirmed sent.
-- [ ] Foxit — email drafted (see email-foxit.txt). Not yet confirmed sent. Try `.com` first, official rules literally list `.come`.
-
 ## Notes for the Next Session
-Phase 0 + Phase 1 (reference logic + tests) are done. Next: either (a) manually set up Xano per `docs/xano-setup.md` and wire the agent to call real Xano endpoints instead of just local functions, or (b) jump ahead to Phase 2 (Doctavian) once credentials arrive, keeping the Xano wiring as a parallel task. Check `docs/xano-setup.md` test-parity note before considering Xano wiring "done" — the live Xano output must match the Python reference test cases exactly.
+Phase 0, 1, 2 (reference/tested logic) are done. Before Phase 3: (a) run `scripts/verify_doctavian_template.py` in Codespace to confirm the IF-field assumption, (b) decide where the `.docx` template will be hosted so Doctavian can fetch it by URL. Then Phase 3 wires up Foxit eSign: send the Doctavian-generated document for signature, verify the signature back in Xano, implement anti-replay.

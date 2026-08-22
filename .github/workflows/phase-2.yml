@@ -1,0 +1,30 @@
+name: Phase 2 — Conditional Document (Doctavian)
+
+on:
+  push:
+    branches:
+      - "phase/2-*"
+      - main
+    paths:
+      - "apps/agent/**"
+      - ".github/workflows/phase-2.yml"
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-doctavian-integration:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Ruff lint
+        run: ruff check src tests
+      - name: Run unit tests (template builder, Doctavian client, e2e pipeline)
+        run: pytest tests/ -v
