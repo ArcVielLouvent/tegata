@@ -33,8 +33,10 @@ What this script does:
        template_builder.py is WRONG and needs to be replaced with
        whatever tag syntax Doctavian's support team says to use instead.
 """
+import json
 import os
 import sys
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -81,6 +83,17 @@ def main():
     print(f"  Uploaded: {uploaded}")
     template_urn = uploaded["id"]
 
+    print("\nStep 0b: uploading a minimal data blob...")
+    print("(their own quickstart examples ALWAYS pair template.urn with a")
+    print(" data.urn from a separate upload — this was missing before and")
+    print(" is the likely real cause of GET_FILE_FROM_STORAGE_FAILED)")
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
+        json.dump({}, tmp)
+        tmp_data_path = Path(tmp.name)
+    uploaded_data = client.upload_data(tmp_data_path)
+    print(f"  Uploaded: {uploaded_data}")
+    data_urn = uploaded_data["id"]
+
     print("\nStep 1: generating HIGH-risk document (required_approver_count=2)...")
     high_doc = client.generate_document(
         template_name="Tegata Warrant (verification)",
@@ -97,13 +110,17 @@ def main():
             TemplateVariable(name="required_approver_count", value="2"),
         ],
         external_request_id=f"verify-high-{uuid.uuid4().hex[:8]}",
+        data_urn=data_urn,
     )
     print(f"  Generated: {high_doc}")
 
-    print("\nStep 2: re-uploading template (single-use — auto-deleted after Step 1's generate)...")
+    print("\nStep 2: re-uploading template + data (single-use — auto-deleted after Step 1's generate)...")
     uploaded_2 = client.upload_template(docx_path)
     template_urn_2 = uploaded_2["id"]
-    print(f"  Uploaded: {uploaded_2}")
+    uploaded_data_2 = client.upload_data(tmp_data_path)
+    data_urn_2 = uploaded_data_2["id"]
+    print(f"  Uploaded template: {uploaded_2}")
+    print(f"  Uploaded data: {uploaded_data_2}")
 
     print("\nStep 3: generating LOW-risk document (required_approver_count=1)...")
     low_doc = client.generate_document(
@@ -121,8 +138,11 @@ def main():
             TemplateVariable(name="required_approver_count", value="1"),
         ],
         external_request_id=f"verify-low-{uuid.uuid4().hex[:8]}",
+        data_urn=data_urn_2,
     )
     print(f"  Generated: {low_doc}")
+
+    os.unlink(tmp_data_path)
 
     print("\n" + "=" * 70)
     print("MANUAL STEP REQUIRED:")

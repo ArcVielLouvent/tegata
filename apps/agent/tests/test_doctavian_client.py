@@ -52,6 +52,39 @@ def test_headers_omit_authorization_when_no_token_provided(client):
 
 
 @responses_lib.activate
+def test_upload_data_hits_correct_endpoint(client, tmp_path):
+    fake_json = tmp_path / "warrant-data.json"
+    fake_json.write_text("{}")
+
+    responses_lib.add(
+        responses_lib.POST,
+        f"{BASE_URL}/v1/documents/data/upload",
+        json={
+            "result": {
+                "data": {
+                    "files": [
+                        {
+                            "id": "d4e5f6a7-8b9c-0d1e-2f3a-4b5c6d7e8f9a",
+                            "fileName": "warrant-data.json",
+                        }
+                    ]
+                },
+                "statusCode": 201,
+                "message": "Created",
+            },
+        },
+        status=201,
+    )
+
+    result = client.upload_data(fake_json)
+
+    assert result["id"] == "d4e5f6a7-8b9c-0d1e-2f3a-4b5c6d7e8f9a"
+    sent = responses_lib.calls[0].request
+    assert sent.url == f"{BASE_URL}/v1/documents/data/upload"
+    assert sent.headers["X-Storage-Type"] == "document-data"
+
+
+@responses_lib.activate
 def test_upload_template_hits_correct_endpoint(client, tmp_path):
     fake_docx = tmp_path / "warrant-template.docx"
     fake_docx.write_bytes(b"fake docx bytes")
