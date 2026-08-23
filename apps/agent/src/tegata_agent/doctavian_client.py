@@ -104,22 +104,12 @@ class DoctavianClient:
 
         return data
 
-    def upload_document(
-        self, file_path: str | Path, storage_type: str = "document-template"
-    ) -> dict:
-        """Uploads a physical file to Doctavian's Storage. Returns the parsed
-        result.data.files[0] object, e.g. {"id": "<guid>", "fileName": "..."}.
-
-        The returned "id" is what create_template's url/path fields need to
-        reference — NOT an arbitrary external URL (confirmed: an external
-        GitHub raw URL fails with 500 GET_FILE_FROM_STORAGE_FAILED when
-        loadMethod is "Storage", per real API testing).
-
-        Accepted extensions per the real API: .docx, .xlsx, .doc, .xls
-        (case-sensitive). Max size: 20MB production, 10MB staging.
-        """
+    def _upload(self, file_path: str | Path, endpoint: str, storage_type: str) -> dict:
+        """Shared multipart upload logic for both /document/upload and
+        /template/upload — same request/response shape, different endpoint
+        and storage semantics."""
         file_path = Path(file_path)
-        url = f"{self.config.base_url}/v1/documents/document/upload"
+        url = f"{self.config.base_url}{endpoint}"
         headers = {
             "x-api-key": self.config.api_key,
             "Accept": "application/json",
@@ -161,6 +151,41 @@ class DoctavianClient:
 
         return data["result"]["data"]["files"][0]
 
+    def upload_document(self, file_path: str | Path) -> dict:
+        """Uploads a physical file to general Storage (X-Storage-Type:
+        document-template). Returns {"id": ..., "fileName": ...}.
+
+        NOTE: for the Tegata pipeline, prefer upload_template() instead —
+        this generic upload's returned id is NOT directly usable as a
+        Document Generate template.urn without a separate
+        Document Template Create step, and that step requires a
+        well-formed absolute URI in its `url` field (confirmed via real
+        API testing: a bare storage id is rejected with
+        TEMPLATE_URL_INVALID). upload_template() below is the endpoint
+        Doctavian's own quickstart missions use for exactly this purpose,
+        and its returned id can be passed directly as template.urn.
+        """
+        return self._upload(
+            file_path, "/v1/documents/document/upload", storage_type="document-template"
+        )
+
+    def upload_template(self, file_path: str | Path) -> dict:
+        """Uploads a template file specifically for use as a
+        Document Generate source (POST /v1/documents/template/upload).
+        Returns {"id": ..., "fileName": ...} — pass the "id" directly as
+        generate_document's template_urn, no separate create_template()
+        call needed.
+
+        IMPORTANT: per Doctavian's own docs, uploaded templates are
+        automatically deleted from Storage after the next
+        document-generation request that consumes them (success or
+        failure) — re-upload before each generation, don't cache the id
+        for reuse across multiple generate calls.
+        """
+        return self._upload(
+            file_path, "/v1/documents/template/upload", storage_type="document-template"
+        )
+
     def create_template(
         self,
         name: str,
@@ -172,8 +197,18 @@ class DoctavianClient:
         load_method: str = "Storage",
         path: str | None = None,
     ) -> dict:
-        """Registers a document template. Returns the parsed response body's
-        result.data.documentTemplate object."""
+        """Registers a PERMANENT, named document template with metadata.
+        Returns the parsed response body's result.data.documentTemplate
+        object.
+
+        NOT part of the Tegata critical path — Tegata re-uploads a fresh
+        template per generation via upload_template() instead, since our
+        templates are simple and don't need permanent named storage. This
+        method is kept for potential future use (e.g. a template library
+        feature) but is untested against the real API's `url` field
+        requirements (must be a well-formed absolute URI — exact expected
+        format for storage-hosted files is undocumented; a bare storage id
+        was rejected with TEMPLATE_URL_INVALID)."""
         body = {
             "name": name,
             "description": description,

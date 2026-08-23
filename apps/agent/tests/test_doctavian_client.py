@@ -52,6 +52,39 @@ def test_headers_omit_authorization_when_no_token_provided(client):
 
 
 @responses_lib.activate
+def test_upload_template_hits_correct_endpoint(client, tmp_path):
+    fake_docx = tmp_path / "warrant-template.docx"
+    fake_docx.write_bytes(b"fake docx bytes")
+
+    responses_lib.add(
+        responses_lib.POST,
+        f"{BASE_URL}/v1/documents/template/upload",
+        json={
+            "result": {
+                "data": {
+                    "files": [
+                        {
+                            "id": "9a8b7c6d-5e4f-3a2b-1c0d-9e8f7a6b5c4d",
+                            "fileName": "warrant-template.docx",
+                        }
+                    ]
+                },
+                "statusCode": 201,
+                "message": "Created",
+            },
+        },
+        status=201,
+    )
+
+    result = client.upload_template(fake_docx)
+
+    assert result["id"] == "9a8b7c6d-5e4f-3a2b-1c0d-9e8f7a6b5c4d"
+    sent = responses_lib.calls[0].request
+    assert sent.url == f"{BASE_URL}/v1/documents/template/upload"
+    assert sent.headers["X-Storage-Type"] == "document-template"
+
+
+@responses_lib.activate
 def test_upload_document_success_matches_real_response_shape(client, tmp_path):
     fake_docx = tmp_path / "quarterly-report.docx"
     fake_docx.write_bytes(b"fake docx bytes")
