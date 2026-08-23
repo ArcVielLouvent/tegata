@@ -13,6 +13,7 @@ See `docs/tegata-concept.md` for the full spec. In short: a time-boxed access au
 - [x] Phase 0 — Repo Foundation
 - [x] Phase 1 — Risk Engine + State Machine (reference implementation + tests; actual Xano Function Stack setup is a manual step you do — see `docs/xano-setup.md`)
 - [x] Phase 2 — Conditional Document (Doctavian) — see detailed status below, one critical assumption still needs live verification
+- [x] Phase 3 — Signature & Verification (Foxit) — client + tests done, real API round-trip (create → sign → verify → download) not yet run
 - [ ] Phase 2 — Conditional Document
 - [ ] Phase 3 — Signature & Verification
 - [ ] Phase 4 — AI Front-Door
@@ -101,3 +102,19 @@ Once unblocked: run `scripts/verify_doctavian_template.py` for real, confirm the
 
 ## Notes for the Next Session
 Phase 0, 1, 2 (reference/tested logic) are done. Before Phase 3: (a) run `scripts/verify_doctavian_template.py` in Codespace to confirm the IF-field assumption, (b) decide where the `.docx` template will be hosted so Doctavian can fetch it by URL. Then Phase 3 wires up Foxit eSign: send the Doctavian-generated document for signature, verify the signature back in Xano, implement anti-replay.
+
+## What Phase 3 Actually Built
+- `apps/agent/src/tegata_agent/foxit_client.py` — `FoxitClient`: `create_envelope_from_binary()`, `get_envelope_details()`, `download_envelope_files()`, `cancel_envelope()`
+- Auth: `client_id`/`client_secret` headers directly, per the **live working curl sample from this project's actual Foxit dashboard** (highest-confidence source — not a generic doc example). Note: the official public Postman collection (github.com/foxitsoftware/foxit-esign-postman-colllection) documents a DIFFERENT auth flow (OAuth2 client_credentials → bearer token) — that collection appears to target the older "eSignGenie" product line, not the unified Foxit Cloud API platform this account uses. Body/field/party shapes from that collection are still used (data format, independent of auth).
+- `apps/agent/src/tegata_agent/foxit_test_pdf.py` — generates a minimal test PDF via `reportlab`. Unlike Doctavian, Foxit's signature fields are positioned by explicit x/y/width/height coordinates passed in the API call — no special tags need to be embedded in the PDF content itself.
+- `scripts/verify_foxit_envelope.py` — real end-to-end verification script for Codespace: creates an envelope, waits for you to actually sign it via the emailed link, polls status until `EXECUTED`, downloads the signed ZIP, and prints the audit trail (`Folder History`).
+- 6 new tests (69 total across the repo), matching exact response/error shapes from Foxit's real Postman collection examples.
+
+## Not Yet Done / Known Gaps (updated)
+- Foxit real end-to-end round-trip not yet run — need to execute `scripts/verify_foxit_envelope.py` with a real email address in Codespace
+- Doctavian template.docx.locale/timezone fix not yet re-verified against real API (see Phase 2 section above)
+- Real Xano account/tables/Function Stack — manual step, not started (guide ready in `docs/xano-setup.md`)
+- `phase-sync.sh` still not run against a real GitHub repo/`gh` CLI
+
+## Notes for the Next Session
+Phases 0-3 have tested logic in place. Priority order: (1) run `scripts/verify_foxit_envelope.py` for real — this is likely to work smoothly given the simpler auth, (2) check back on the Doctavian TEMPLATE_READ_FAILED fix and/or Kanwal's reply, (3) once both Foxit and Doctavian are confirmed working end-to-end, wire them together (Doctavian generates the document → Foxit signs it → verify signature back) as the actual Tegata pipeline, which is currently built as two independent, tested-but-unconnected clients.

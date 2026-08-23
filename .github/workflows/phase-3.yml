@@ -1,0 +1,30 @@
+name: Phase 3 — Signature & Verification (Foxit)
+
+on:
+  push:
+    branches:
+      - "phase/3-*"
+      - main
+    paths:
+      - "apps/agent/**"
+      - ".github/workflows/phase-3.yml"
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-foxit-integration:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Ruff lint
+        run: ruff check src tests
+      - name: Run unit tests (Foxit client, test PDF generator)
+        run: pytest tests/ -v
