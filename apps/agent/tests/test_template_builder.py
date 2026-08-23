@@ -46,9 +46,30 @@ def test_template_contains_conditional_if_field_not_just_static_text(tmp_path):
     assert "IF { MERGEFIELD required_approver_count }" in xml
     assert "TWO approvers" in xml
     assert "ONE approver" in xml
-    # both fldChar begin/end markers must be present for a well-formed field
-    assert xml.count('w:fldCharType="begin"') >= 2  # at least one MERGEFIELD + the IF field
+    # A structurally COMPLETE field needs begin, separate, AND end markers
+    # (not just begin/end) — this was the actual bug that caused
+    # Doctavian's real API to reject the file with TEMPLATE_READ_FAILED,
+    # even though python-docx and Microsoft Word both tolerated the
+    # incomplete version silently.
+    assert xml.count('w:fldCharType="begin"') >= 2
+    assert xml.count('w:fldCharType="separate"') >= 2
     assert xml.count('w:fldCharType="end"') >= 2
+
+
+def test_all_fields_have_matching_begin_separate_end_counts(tmp_path):
+    """Catches any future field added without the full 4-part structure —
+    counts must always match exactly, never just 'begin >= 1'."""
+    out = build_tegata_template(tmp_path / "tegata-template.docx")
+    xml = _read_document_xml(out)
+
+    begins = xml.count('w:fldCharType="begin"')
+    separates = xml.count('w:fldCharType="separate"')
+    ends = xml.count('w:fldCharType="end"')
+
+    assert begins == separates == ends, (
+        f"Field structure mismatch: begin={begins} separate={separates} end={ends} "
+        "— every field must have exactly one of each."
+    )
 
 
 def test_template_file_is_reasonably_small(tmp_path):

@@ -32,9 +32,19 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
 
-def _add_field(paragraph, field_instruction: str) -> None:
-    """Insert a raw Word field code into a paragraph run.
-    e.g. field_instruction = 'MERGEFIELD required_approver_count'
+def _add_field(paragraph, field_instruction: str, cached_result: str = "") -> None:
+    """Insert a complete, well-formed Word field code into a paragraph run.
+
+    A structurally valid OOXML field needs FOUR parts, not two:
+    begin -> instrText -> separate -> cached result run -> end.
+
+    Earlier version of this function omitted the "separate" marker and
+    the cached result run. Microsoft Word itself tolerates that (it just
+    recalculates on open), but Doctavian's document-generation engine
+    (a third-party OOXML parser, not Word itself) rejected it outright
+    with 500 TEMPLATE_READ_FAILED — confirmed via real API testing. This
+    version produces a complete field so it parses as valid regardless
+    of which library reads it.
     """
     run = paragraph.add_run()
     fld_char_begin = OxmlElement("w:fldChar")
@@ -46,9 +56,21 @@ def _add_field(paragraph, field_instruction: str) -> None:
     instr_text.text = f" {field_instruction} "
     run._r.append(instr_text)
 
+    fld_char_separate = OxmlElement("w:fldChar")
+    fld_char_separate.set(qn("w:fldCharType"), "separate")
+    run._r.append(fld_char_separate)
+
+    if cached_result:
+        result_run = paragraph.add_run()
+        result_text = OxmlElement("w:t")
+        result_text.set(qn("xml:space"), "preserve")
+        result_text.text = cached_result
+        result_run._r.append(result_text)
+
+    end_run = paragraph.add_run()
     fld_char_end = OxmlElement("w:fldChar")
     fld_char_end.set(qn("w:fldCharType"), "end")
-    run._r.append(fld_char_end)
+    end_run._r.append(fld_char_end)
 
 
 def build_tegata_template(output_path: str | Path) -> Path:
@@ -94,11 +116,12 @@ def build_tegata_template(output_path: str | Path) -> Path:
     #     "This request requires signatures from TWO approvers before it is valid."
     #     "This request requires a signature from ONE approver before it is valid." }
     p = doc.add_paragraph()
-    run = p.add_run()
+    begin_run = p.add_run()
     fld_begin = OxmlElement("w:fldChar")
     fld_begin.set(qn("w:fldCharType"), "begin")
-    run._r.append(fld_begin)
+    begin_run._r.append(fld_begin)
 
+    instr_run = p.add_run()
     instr = OxmlElement("w:instrText")
     instr.set(qn("xml:space"), "preserve")
     instr.text = (
@@ -106,11 +129,28 @@ def build_tegata_template(output_path: str | Path) -> Path:
         '"This request requires signatures from TWO approvers before it is valid." '
         '"This request requires a signature from ONE approver before it is valid." '
     )
-    run._r.append(instr)
+    instr_run._r.append(instr)
 
+    separate_run = p.add_run()
+    fld_separate = OxmlElement("w:fldChar")
+    fld_separate.set(qn("w:fldCharType"), "separate")
+    separate_run._r.append(fld_separate)
+
+    # Cached display result — shown until the consuming engine recalculates
+    # the field. Doctavian's engine is expected to evaluate the IF
+    # condition itself and substitute real content; this is a safe
+    # placeholder default (the "one approver" branch, since it's the
+    # lower-risk assumption) in case a viewer doesn't recalculate.
+    result_run = p.add_run()
+    result_text = OxmlElement("w:t")
+    result_text.set(qn("xml:space"), "preserve")
+    result_text.text = "This request requires a signature from ONE approver before it is valid."
+    result_run._r.append(result_text)
+
+    end_run = p.add_run()
     fld_end = OxmlElement("w:fldChar")
     fld_end.set(qn("w:fldCharType"), "end")
-    run._r.append(fld_end)
+    end_run._r.append(fld_end)
 
     doc.add_paragraph(
         "This document is void if not signed within the approval window, "
