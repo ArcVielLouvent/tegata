@@ -186,6 +186,25 @@ class DoctavianClient:
             file_path, "/v1/documents/template/upload", storage_type="document-template"
         )
 
+    def upload_data(self, file_path: str | Path) -> dict:
+        """Uploads a JSON data file for use as a Document Generate data
+        source (POST /v1/documents/data/upload, X-Storage-Type:
+        document-data). Returns {"id": ..., "fileName": ...} — pass the
+        "id" as generate_document's data_urn.
+
+        Confirmed necessary via Doctavian's own quickstart mission
+        examples: every real Document Generate call pairs a
+        template.urn (from upload_template) with a data.urn (from this
+        method) — omitting data.urn was the actual cause of
+        GET_FILE_FROM_STORAGE_FAILED in earlier testing, not a problem
+        with the template itself.
+
+        Same single-use lifecycle as upload_template(): the uploaded
+        data file is deleted after the next generate call consumes it.
+        Accepted extension: .json only.
+        """
+        return self._upload(file_path, "/v1/documents/data/upload", storage_type="document-data")
+
     def create_template(
         self,
         name: str,
