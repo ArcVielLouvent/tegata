@@ -73,24 +73,15 @@ def main():
         DoctavianConfig(api_key=api_key, base_url=base_url, access_token=access_token)
     )
 
-    print(f"Step 0: uploading {docx_path.name} to Doctavian's Storage...")
-    uploaded = client.upload_document(docx_path)
+    print(f"Step 0: uploading {docx_path.name} as a template...")
+    print("(using upload_template(), NOT upload_document()+create_template() —")
+    print(" confirmed via Doctavian's own quickstart missions that this")
+    print(" returns an id usable directly as generate_document's template_urn)")
+    uploaded = client.upload_template(docx_path)
     print(f"  Uploaded: {uploaded}")
-    storage_id = uploaded["id"]
+    template_urn = uploaded["id"]
 
-    template_urn = str(uuid.uuid4())
-    print(f"\nStep 1: registering template (urn={template_urn})...")
-    template = client.create_template(
-        name="Tegata Warrant (verification)",
-        description="Verification run — safe to delete after.",
-        title="Warrant",
-        urn=template_urn,
-        url=storage_id,
-        path=storage_id,
-    )
-    print(f"  Registered: {template['documentTemplateGuid']}")
-
-    print("\nStep 2: generating HIGH-risk document (required_approver_count=2)...")
+    print("\nStep 1: generating HIGH-risk document (required_approver_count=2)...")
     high_doc = client.generate_document(
         template_name="Tegata Warrant (verification)",
         template_urn=template_urn,
@@ -109,10 +100,15 @@ def main():
     )
     print(f"  Generated: {high_doc}")
 
+    print("\nStep 2: re-uploading template (single-use — auto-deleted after Step 1's generate)...")
+    uploaded_2 = client.upload_template(docx_path)
+    template_urn_2 = uploaded_2["id"]
+    print(f"  Uploaded: {uploaded_2}")
+
     print("\nStep 3: generating LOW-risk document (required_approver_count=1)...")
     low_doc = client.generate_document(
         template_name="Tegata Warrant (verification)",
-        template_urn=template_urn,
+        template_urn=template_urn_2,
         document_name=f"verify-low-{uuid.uuid4().hex[:8]}",
         variables=[
             TemplateVariable(name="resource", value="internal_wiki"),
