@@ -14,6 +14,7 @@ See `docs/tegata-concept.md` for the full spec. In short: a time-boxed access au
 - [x] Phase 1 — Risk Engine + State Machine (reference implementation + tests; actual Xano Function Stack setup is a manual step you do — see `docs/xano-setup.md`)
 - [x] Phase 2 — Conditional Document (Doctavian) — see detailed status below, one critical assumption still needs live verification
 - [x] Phase 3 — Signature & Verification (Foxit) — client + tests done, real API round-trip (create → sign → verify → download) not yet run
+- [x] Phase 4 — AI Front-Door (Two-Pass NLU + 6-model fallback) — logic fully tested, real API calls not yet run
 - [ ] Phase 2 — Conditional Document
 - [ ] Phase 3 — Signature & Verification
 - [ ] Phase 4 — AI Front-Door
@@ -118,3 +119,22 @@ Phase 0, 1, 2 (reference/tested logic) are done. Before Phase 3: (a) run `script
 
 ## Notes for the Next Session
 Phases 0-3 have tested logic in place. Priority order: (1) run `scripts/verify_foxit_envelope.py` for real — this is likely to work smoothly given the simpler auth, (2) check back on the Doctavian TEMPLATE_READ_FAILED fix and/or Kanwal's reply, (3) once both Foxit and Doctavian are confirmed working end-to-end, wire them together (Doctavian generates the document → Foxit signs it → verify signature back) as the actual Tegata pipeline, which is currently built as two independent, tested-but-unconnected clients.
+
+## What Phase 4 Actually Built
+- `apps/agent/src/tegata_agent/llm_client.py` — `LLMClient` protocol + implementations: `AnthropicLLMClient` (standalone, not in default chain), `GeminiLLMClient`, `GroqLLMClient`, `OpenRouterLLMClient`, plus `FallbackLLMClient` (sequential fallback orchestrator) and `build_default_fallback_client()` (wires up 2 models each from Gemini/Groq/OpenRouter = 6 total, in that order)
+- `apps/agent/src/tegata_agent/nlu_frontdoor.py` — the two-pass pipeline: `extract_request()` (pass 1), `self_check_extraction()` (pass 2), `validate_and_build_request()` (the hard gate — deterministic Pydantic + resource whitelist, NOT the LLM), `process_natural_language_request()` (runs all three in sequence)
+- **Critical design point**: fallback is sequential (try model 1, fall through to model 2 on any exception, etc.), not parallel — deliberately kept simple given time constraints; parallel racing was considered and explicitly deferred as a possible Phase 7 stretch item, not core scope
+- 17 new tests (86 total across the repo): 8 for fallback orchestration logic (using fakes, no real API needed), 9 for the NLU pipeline (using a `FakeLLMClient`) — including the critical demo-moment test: a prompt-injection attempt that BOTH LLM passes naively "agree" with is still rejected by the hard gate
+- `scripts/verify_nlu_frontdoor.py` — real API verification script; unlike Doctavian/Foxit, this doesn't need Codespace-only network access (Gemini/Groq/OpenRouter aren't blocked in most sandboxes) but still needs YOUR API keys, which Claude doesn't have
+- Model names hardcoded as defaults (Gemini: gemini-2.5-flash/gemini-2.0-flash, Groq: llama-3.3-70b-versatile/llama-3.1-8b-instant, OpenRouter: two :free-tier models) are **unverified against current provider lineups** — check each provider's docs (linked in code comments) before the demo, these change often
+
+## Not Yet Done / Known Gaps (updated)
+- LLM fallback chain not yet tested against real provider APIs — need to run `scripts/verify_nlu_frontdoor.py` with real keys
+- Model names in `build_default_fallback_client()` defaults need verification against current provider offerings
+- Foxit real end-to-end round-trip: envelope creation confirmed working (real test showed `SHARED` status + `InviteSentTo` in audit trail) — still need to actually complete signing to confirm `EXECUTED` status + download works
+- Doctavian TEMPLATE_READ_FAILED fix (locale/timezone) not yet re-verified — waiting on Kanwal's reply too
+- Real Xano account/tables/Function Stack — manual step, not started (guide ready in `docs/xano-setup.md`)
+- `phase-sync.sh` still not run against a real GitHub repo/`gh` CLI
+
+## Notes for the Next Session
+Phases 0-4 have tested logic in place. This branch (`phase/4-ai-frontdoor`) was built off `phase/3-foxit`, which was built off `phase/2-doctavian` — so it contains ALL prior phase commits linearly. When merging to GitHub, merge in phase order (2 → 3 → 4) via separate PRs if you want clean per-phase review, or merge the final tip in one PR if that's simpler given time constraints — either way ends with the same code in `main`.
