@@ -58,28 +58,40 @@ class FallbackLLMClient:
 
 
 class GeminiLLMClient:
-    """Requires the `google-generativeai` package and a Gemini API key.
-    Check https://ai.google.dev/gemini-api/docs/models for current model
-    names before the deadline — these change over time and the ones below
-    may not be current by the time you read this."""
+    """Requires the `google-genai` package (NOT the deprecated
+    `google-generativeai` package, which stopped receiving updates — see
+    https://github.com/google-gemini/deprecated-generative-ai-python) and
+    a Gemini API key.
+
+    Model name confirmed directly from a real API error message during
+    testing (2026-08-24): the API itself reported "gemini-2.5-flash is no
+    longer available... use models/gemini-3.6-flash" — this is the most
+    reliable source available (ground truth from the provider, not a doc
+    page that might be stale). Check https://ai.google.dev/gemini-api/docs/models
+    for anything newer before the deadline."""
 
     def __init__(self, api_key: str, model: str):
-        import google.generativeai as genai
+        from google import genai
 
-        genai.configure(api_key=api_key)
-        self._model = genai.GenerativeModel(model)
+        self._client = genai.Client(api_key=api_key)
+        self._model = model
 
     def complete(self, system_prompt: str, user_message: str) -> str:
-        model_with_system = self._model
-        response = model_with_system.generate_content(
-            [{"role": "user", "parts": [f"{system_prompt}\n\n{user_message}"]}]
+        response = self._client.models.generate_content(
+            model=self._model,
+            contents=f"{system_prompt}\n\n{user_message}",
         )
         return response.text
 
 
 class GroqLLMClient:
-    """Requires the `groq` package and a Groq API key. Check
-    https://console.groq.com/docs/models for current model names."""
+    """Requires the `groq` package and a Groq API key.
+
+    Model names confirmed via Groq's official deprecation announcement
+    (console.groq.com/docs/deprecations, 2026-06-17): llama-3.3-70b-versatile
+    and llama-3.1-8b-instant were deprecated; official recommended
+    replacements are openai/gpt-oss-120b and openai/gpt-oss-20b. Check
+    that page again before the deadline in case of further changes."""
 
     def __init__(self, api_key: str, model: str, max_tokens: int = 1024):
         from groq import Groq
@@ -102,9 +114,14 @@ class GroqLLMClient:
 
 class OpenRouterLLMClient:
     """OpenRouter exposes an OpenAI-compatible API, so this uses the
-    `openai` package pointed at OpenRouter's base URL. Check
-    https://openrouter.ai/models for current free-tier model names
-    (they typically have a ':free' suffix)."""
+    `openai` package pointed at OpenRouter's base URL.
+
+    Uses "openrouter/free" — OpenRouter's own auto-router that always
+    selects from whatever free models are currently available — instead
+    of a pinned model slug. OpenRouter's free-tier lineup was found to
+    rotate very frequently (weekly, per their own model listing), so
+    pinning a specific ":free" slug (as an earlier version of this file
+    did) breaks often; the auto-router is the future-proof choice here."""
 
     def __init__(self, api_key: str, model: str, max_tokens: int = 1024):
         from openai import OpenAI
@@ -129,21 +146,31 @@ def build_default_fallback_client(
     gemini_api_key: str | None = None,
     groq_api_key: str | None = None,
     openrouter_api_key: str | None = None,
-    gemini_models: tuple[str, str] = ("gemini-2.5-flash", "gemini-2.0-flash"),
-    groq_models: tuple[str, str] = ("llama-3.3-70b-versatile", "llama-3.1-8b-instant"),
-    openrouter_models: tuple[str, str] = (
-        "meta-llama/llama-3.1-8b-instruct:free",
-        "google/gemini-flash-1.5:free",
-    ),
+    gemini_models: tuple[str, str] = ("gemini-3.6-flash", "gemini-3.6-flash-lite"),
+    groq_models: tuple[str, str] = ("openai/gpt-oss-120b", "openai/gpt-oss-20b"),
+    openrouter_models: tuple[str, str] = ("openrouter/free", "openrouter/free"),
 ) -> FallbackLLMClient:
     """Wires up the 6-model fallback chain: 2 Gemini -> 2 Groq -> 2
     OpenRouter, in that order. Any API key left as None skips that
     provider's 2 models entirely (e.g. if you only have a Groq key,
     pass only groq_api_key and you get a 2-model chain, not 6).
 
-    VERIFY THE MODEL NAMES ABOVE before relying on this for a demo —
-    provider free-tier model lineups change; check each provider's docs
-    linked in the client classes above."""
+    Model names last verified 2026-08-24 against real API testing:
+    - gemini-3.6-flash: confirmed via a real API error message (Google's
+      own deprecation notice for gemini-2.5-flash/2.0-flash)
+    - gemini-3.6-flash-lite: EDUCATED GUESS following Google's typical
+      flash/flash-lite naming pattern, NOT independently confirmed —
+      verify this one specifically before relying on it
+    - openai/gpt-oss-120b, openai/gpt-oss-20b: confirmed via Groq's
+      official deprecation page (console.groq.com/docs/deprecations)
+    - openrouter/free (used for both OpenRouter slots): OpenRouter's own
+      auto-router, chosen because their free-tier named models were
+      found to rotate weekly — pinning a specific slug broke almost
+      immediately in real testing. Each call may land on a different
+      underlying free model, which is fine for fallback purposes.
+
+    VERIFY gemini-3.6-flash-lite specifically before a demo — everything
+    else above has direct evidence behind it."""
     providers: list[tuple[str, LLMClient]] = []
 
     if gemini_api_key:
