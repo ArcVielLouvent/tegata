@@ -1,0 +1,31 @@
+name: Phase 5 — Auto-Expire & Audit Trail
+
+on:
+  push:
+    branches:
+      - "phase/5-*"
+      - main
+    paths:
+      - "apps/agent/**"
+      - "docs/xano-setup.md"
+      - ".github/workflows/phase-5.yml"
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-ttl-and-audit-log:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Ruff lint
+        run: ruff check src tests
+      - name: Run unit tests (TTL policy, hash-chained audit log, auto-expire orchestration)
+        run: pytest tests/test_ttl.py tests/test_audit_log.py tests/test_auto_expire.py -v
