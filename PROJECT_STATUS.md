@@ -2,7 +2,7 @@
 
 > This file is the project's "memory" that travels with the repo. Every new work session should start by reading this file, not by assuming.
 
-**Last updated:** 2026-08-21 (Phase 0 complete)
+**Last updated:** 2026-08-25 (Phase 5 complete)
 **Hackathon deadline:** September 3, 2026, 10:00 PDT
 **Target:** Foxit, Xano, Doctavian tracks + Overall Winner (DevNetwork [API+Cloud+AI] Hackathon 2026)
 
@@ -15,10 +15,7 @@ See `docs/tegata-concept.md` for the full spec. In short: a time-boxed access au
 - [x] Phase 2 — Conditional Document (Doctavian) — see detailed status below, one critical assumption still needs live verification
 - [x] Phase 3 — Signature & Verification (Foxit) — client + tests done, real API round-trip (create → sign → verify → download) not yet run
 - [x] Phase 4 — AI Front-Door (Two-Pass NLU + 6-model fallback) — logic fully tested, real API calls not yet run
-- [ ] Phase 2 — Conditional Document
-- [ ] Phase 3 — Signature & Verification
-- [ ] Phase 4 — AI Front-Door
-- [ ] Phase 5 — Auto-Expire & Audit Trail
+- [x] Phase 5 — Auto-Expire & Audit Trail — reference implementation + tests done; real Xano scheduled task not yet built (manual step, see `docs/xano-setup.md` sections 7-8)
 - [ ] Phase 6 — Frontend Demo
 - [ ] Phase 7 — Stretch Features
 - [ ] Phase 8 — Documentation & Submission
@@ -129,12 +126,48 @@ Phases 0-3 have tested logic in place. Priority order: (1) run `scripts/verify_f
 - Model names hardcoded as defaults (Gemini: gemini-2.5-flash/gemini-2.0-flash, Groq: llama-3.3-70b-versatile/llama-3.1-8b-instant, OpenRouter: two :free-tier models) are **unverified against current provider lineups** — check each provider's docs (linked in code comments) before the demo, these change often
 
 ## Not Yet Done / Known Gaps (updated)
-- LLM fallback chain not yet tested against real provider APIs — need to run `scripts/verify_nlu_frontdoor.py` with real keys
-- Model names in `build_default_fallback_client()` defaults need verification against current provider offerings
-- Foxit real end-to-end round-trip: envelope creation confirmed working (real test showed `SHARED` status + `InviteSentTo` in audit trail) — still need to actually complete signing to confirm `EXECUTED` status + download works
-- Doctavian TEMPLATE_READ_FAILED fix (locale/timezone) not yet re-verified — waiting on Kanwal's reply too
+- LLM fallback chain: **verified against real APIs 2026-08-24** — normal request accepted correctly, prompt-injection attempt correctly rejected by the hard gate (and independently flagged by the LLM's own self-check pass too). `gemini-3.6-flash-lite` (2nd Gemini model) still unverified — only `gemini-3.6-flash` was actually exercised in the successful run; if the chain ever falls through to the 2nd Gemini slot, watch for whether that name is right.
+- Foxit real end-to-end round-trip: **fully confirmed 2026-08-24** — envelope created, signed by hand (real signature, "Armand al-farizy", Foxit account is in trial mode hence the "TEST MODE" watermark on the output, which is expected and not a bug), audit trail showed Created → InviteSentTo → (signing completed).
+- Doctavian TEMPLATE_READ_FAILED: reproduction details sent to Kanwal (template file, data payload, exact generate request body) — waiting on her team's investigation.
 - Real Xano account/tables/Function Stack — manual step, not started (guide ready in `docs/xano-setup.md`)
 - `phase-sync.sh` still not run against a real GitHub repo/`gh` CLI
+- Minor: a `pydantic.ArbitraryTypeWarning` about `<built-in function any>` appeared during a real run — grepped the codebase for a stray lowercase `any` type hint and found nothing obviously wrong (the only match was a code comment). Likely from a pydantic/fastapi internal interaction, not confirmed as a real bug. Low priority — revisit if it ever causes an actual failure, not just a warning.
 
 ## Notes for the Next Session
-Phases 0-4 have tested logic in place. This branch (`phase/4-ai-frontdoor`) was built off `phase/3-foxit`, which was built off `phase/2-doctavian` — so it contains ALL prior phase commits linearly. When merging to GitHub, merge in phase order (2 → 3 → 4) via separate PRs if you want clean per-phase review, or merge the final tip in one PR if that's simpler given time constraints — either way ends with the same code in `main`.
+Phases 0-4 have tested logic in place, AND Phases 3-4's core mechanisms are now confirmed working against real APIs (Foxit signing loop, LLM fallback + hard gate). This branch (`phase/4-ai-frontdoor`) was built off `phase/3-foxit`, which was built off `phase/2-doctavian` — so it contains ALL prior phase commits linearly.
+
+**Next up (as of the prior session): Phase 5 — Auto-Expire & Audit Trail.** See ROADMAP.md for scope (TTL job accelerated for demo, automatic transition to `Expired`, permanent audit log). This phase is mostly Xano-side logic (state machine already exists in `state_machine.py` from Phase 1 — Phase 5 is about triggering the `active -> expired` transition automatically after a TTL, plus building out the audit log storage) — likely needs the real Xano account finally set up (still not started, see `docs/xano-setup.md`).
+
+**Merging status (at start of this session):** none of phase/2, 3, or 4 confirmed merged to the real GitHub `main` yet — still true as of this session's end. `phase/5-auto-expire` was branched from `phase/4-ai-frontdoor`, so it also contains phases 2, 3, 4 linearly, same pattern as before. Before or alongside starting Phase 6: merge phase/2 → phase/3 → phase/4 → phase/5 to `main` via separate PRs (recommended, for cleaner review) or merge the phase/5 tip in one PR (simpler, same end result in `main`) — check `github.com/ArcVielLouvent/tegata/branches` first to confirm nothing changed. Local dev is now VS Code (no more Codespaces — billing ran out), so PR pushes happen from your own machine now, not a Codespace terminal.
+
+**Doctavian:** still blocked pending Kanwal's investigation (reproduction details sent 2026-08-24 with exact template file, data payload, and generate request body). Did not block Phase 5 — Xano and the auto-expire/audit-log logic don't depend on Doctavian being fixed. Check your email for a reply before starting Phase 6.
+
+## What Phase 5 Actually Built
+- `apps/agent/src/tegata_agent/ttl.py` — `compute_expires_at()` (turns an activation timestamp + `max_duration_minutes` into an `expires_at`, with an optional `acceleration_seconds_per_minute` param for compressing a demo recording — see `.env.example`'s `DEMO_TTL_ACCELERATION_SECONDS`), `is_expired()`, `seconds_until_expiry()` (for a future Phase 6 UI countdown)
+- `apps/agent/src/tegata_agent/audit_log.py` — `append_entry()` builds a hash-chained `AuditLogEntry` (SHA-256 over a canonical, sorted-keys JSON representation of the entry's content + the previous entry's hash), `verify_chain()` detects a tampered field or a broken `prev_hash` link. **Note on scope:** the schema already required `prev_hash`/`hash` as of Phase 0, so this hashing logic is base Phase 5 scope — Phase 7 "Stretch C" is specifically the *live demo* of corrupting a real Xano row and catching it on camera, built on top of this primitive, not new hashing logic.
+- `apps/agent/src/tegata_agent/auto_expire.py` — `check_and_expire()`: pure function tying `state_machine.py` (Phase 1) + `ttl.py` + `audit_log.py` together. Given a warrant's current status and `expires_at`, decides whether to transition to `expired` right now, routes the actual transition through `state_machine.validate_transition()` (single source of truth, not a duplicated rule), and builds the `auto_expired` audit entry with `actor=None` (system-triggered, no human). Designed to be called repeatedly/idempotently by a scheduled sweep — always a safe no-op on anything not currently `active`, or not yet past `expires_at`.
+- `docs/xano-setup.md` — added sections 7 (Function Stack for `POST /audit-log/append`, including the exact canonical-JSON serialization Xano's Function Stack must match to produce identical SHA-256 hashes to the Python reference) and 8 (the scheduled-task sweep that mirrors `check_and_expire()` against every `active` warrant row)
+- `scripts/verify_auto_expire_demo.py` — real-time verification script (same spirit as `verify_foxit_envelope.py`/`verify_nlu_frontdoor.py`, but calls no external API since Phase 5 has none). Builds a real hash-chained audit trail through to `active`, computes an accelerated `expires_at`, then polls with actual `time.sleep()` in genuine wall-clock time — NOT an injected `now` like the pytest suite — until it auto-expires with zero human action, then verifies the full chain. **Actually run 2026-08-25** (`--minutes 1 --accel 1 --poll 1`): confirmed the real-time cycle completes and auto-expires exactly as expected. This is also the literal script to run while screen-recording Wow Moment #3 for the demo video (docs/tegata-concept.md section 6).
+- 22 new tests (139 total across the repo): `test_ttl.py` (9), `test_audit_log.py` (9 — including tamper-detection and broken-link-detection cases), `test_auto_expire.py` (7, plus a parametrized "safe no-op on every non-active status" case) — including an explicit end-to-end test using the exact accelerated-TTL scenario described in ROADMAP.md's Phase 5 "done when" criteria (15-second demo window)
+- `.github/workflows/phase-5.yml` — lints + runs the three new test files
+
+## Not Yet Done / Known Gaps (updated)
+- Real Xano scheduled task for the auto-expire sweep — manual step, not started (guide ready in `docs/xano-setup.md` section 8)
+- Real Xano Function Stack for `POST /audit-log/append` — manual step, not started (guide ready in `docs/xano-setup.md` section 7); in particular, the canonical-JSON serialization must be verified to produce byte-identical hashes to the Python reference before trusting it
+- Doctavian TEMPLATE_READ_FAILED: still waiting on Kanwal's team
+- Foxit real end-to-end round-trip: confirmed working (see Phase 3/4 notes above)
+- `phase-sync.sh` still not run against a real GitHub repo/`gh` CLI
+- None of phase/2 through phase/5 merged to the real GitHub `main` yet (see "Merging status" above)
+
+## Notes for the Next Session
+Phases 0-5 have tested reference logic in place, plus Phase 3/4's core mechanisms confirmed against real APIs. `phase/5-auto-expire` was branched from `phase/4-ai-frontdoor`, so it linearly contains every prior phase's commits.
+
+**Immediate priorities, in order:**
+1. **Merge the branch chain to `main`** via GitHub UI (push `phase/5-auto-expire`, open a PR, wait for `phase-5.yml` CI green, merge) — this has been deferred three sessions running and the chain keeps growing; do this before piling Phase 6 on top.
+2. **Set up the real Xano account** (still not started at all — self-serve, no blocker, see `docs/xano-setup.md` for the full table + Function Stack spec across Phases 1, 3, 5) — this is now the single biggest gap between "tested reference logic" and "an actually running backend."
+3. Check Doctavian/Kanwal's inbox for a reply on `TEMPLATE_READ_FAILED`.
+4. **Phase 6 — Frontend Demo** (Next.js) is next up per ROADMAP.md once Xano is real and reachable — a UI can't meaningfully demo against reference-only Python logic, it needs the actual Xano API endpoints.
+
+**Worth doing once real Xano tables exist:** re-run `scripts/verify_auto_expire_demo.py`'s logic (or a Xano-side equivalent) against the real scheduled task from `docs/xano-setup.md` section 8, to confirm the actual Function Stack sweep behaves identically to the Python reference in real time, not just in pytest.
+
+**Environment note:** working from local VS Code now, not GitHub Codespaces (billing ran out) — this doesn't change anything about the Doctavian/Foxit network restrictions (those were about Claude's own sandbox, not Codespaces specifically), but any workflow notes that assumed a Codespace terminal should be read as "your local machine" instead going forward.
