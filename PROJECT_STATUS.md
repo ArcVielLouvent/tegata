@@ -129,12 +129,18 @@ Phases 0-3 have tested logic in place. Priority order: (1) run `scripts/verify_f
 - Model names hardcoded as defaults (Gemini: gemini-2.5-flash/gemini-2.0-flash, Groq: llama-3.3-70b-versatile/llama-3.1-8b-instant, OpenRouter: two :free-tier models) are **unverified against current provider lineups** — check each provider's docs (linked in code comments) before the demo, these change often
 
 ## Not Yet Done / Known Gaps (updated)
-- LLM fallback chain not yet tested against real provider APIs — need to run `scripts/verify_nlu_frontdoor.py` with real keys
-- Model names in `build_default_fallback_client()` defaults need verification against current provider offerings
-- Foxit real end-to-end round-trip: envelope creation confirmed working (real test showed `SHARED` status + `InviteSentTo` in audit trail) — still need to actually complete signing to confirm `EXECUTED` status + download works
-- Doctavian TEMPLATE_READ_FAILED fix (locale/timezone) not yet re-verified — waiting on Kanwal's reply too
+- LLM fallback chain: **verified against real APIs 2026-08-24** — normal request accepted correctly, prompt-injection attempt correctly rejected by the hard gate (and independently flagged by the LLM's own self-check pass too). `gemini-3.6-flash-lite` (2nd Gemini model) still unverified — only `gemini-3.6-flash` was actually exercised in the successful run; if the chain ever falls through to the 2nd Gemini slot, watch for whether that name is right.
+- Foxit real end-to-end round-trip: **fully confirmed 2026-08-24** — envelope created, signed by hand (real signature, "Armand al-farizy", Foxit account is in trial mode hence the "TEST MODE" watermark on the output, which is expected and not a bug), audit trail showed Created → InviteSentTo → (signing completed).
+- Doctavian TEMPLATE_READ_FAILED: reproduction details sent to Kanwal (template file, data payload, exact generate request body) — waiting on her team's investigation.
 - Real Xano account/tables/Function Stack — manual step, not started (guide ready in `docs/xano-setup.md`)
 - `phase-sync.sh` still not run against a real GitHub repo/`gh` CLI
+- Minor: a `pydantic.ArbitraryTypeWarning` about `<built-in function any>` appeared during a real run — grepped the codebase for a stray lowercase `any` type hint and found nothing obviously wrong (the only match was a code comment). Likely from a pydantic/fastapi internal interaction, not confirmed as a real bug. Low priority — revisit if it ever causes an actual failure, not just a warning.
 
 ## Notes for the Next Session
-Phases 0-4 have tested logic in place. This branch (`phase/4-ai-frontdoor`) was built off `phase/3-foxit`, which was built off `phase/2-doctavian` — so it contains ALL prior phase commits linearly. When merging to GitHub, merge in phase order (2 → 3 → 4) via separate PRs if you want clean per-phase review, or merge the final tip in one PR if that's simpler given time constraints — either way ends with the same code in `main`.
+Phases 0-4 have tested logic in place, AND Phases 3-4's core mechanisms are now confirmed working against real APIs (Foxit signing loop, LLM fallback + hard gate). This branch (`phase/4-ai-frontdoor`) was built off `phase/3-foxit`, which was built off `phase/2-doctavian` — so it contains ALL prior phase commits linearly.
+
+**Next up: Phase 5 — Auto-Expire & Audit Trail.** See ROADMAP.md for scope (TTL job accelerated for demo, automatic transition to `Expired`, permanent audit log). This phase is mostly Xano-side logic (state machine already exists in `state_machine.py` from Phase 1 — Phase 5 is about triggering the `active -> expired` transition automatically after a TTL, plus building out the audit log storage) — likely needs the real Xano account finally set up (still not started, see `docs/xano-setup.md`).
+
+**Merging status:** none of phase/2, 3, or 4 confirmed merged to the real GitHub `main` yet as of this session — check `github.com/ArcVielLouvent/tegata/branches` and merge via PR (see README/PROJECT_STATUS history for the established workflow: push branch, open PR on GitHub, wait for CI, merge via GitHub UI) before or alongside starting Phase 5, to avoid the branch chain growing even longer.
+
+**Doctavian:** still blocked pending Kanwal's investigation (reproduction details sent 2026-08-24 with exact template file, data payload, and generate request body). Don't block Phase 5 on this — Xano and the auto-expire logic don't depend on Doctavian being fixed.
