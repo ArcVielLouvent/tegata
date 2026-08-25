@@ -1,0 +1,30 @@
+name: Phase 4 — AI Front-Door (Two-Pass NLU + Fallback)
+
+on:
+  push:
+    branches:
+      - "phase/4-*"
+      - main
+    paths:
+      - "apps/agent/**"
+      - ".github/workflows/phase-4.yml"
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-nlu-frontdoor:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Ruff lint
+        run: ruff check src tests
+      - name: Run unit tests (NLU pipeline, fallback orchestration — no API keys needed)
+        run: pytest tests/test_nlu_frontdoor.py tests/test_llm_fallback.py -v
