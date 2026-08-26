@@ -91,6 +91,8 @@ Diagnostic results (curl against the real API), consistent with the documented r
 
 **Next action, high priority:** run `scripts/verify_doctavian_template.py` for real with a fresh `DOCTAVIAN_ACCESS_TOKEN`, confirm the Word IF field renders differently for high vs low risk as originally intended. If this succeeds, mark Phase 2 fully resolved — the "CRITICAL — Unverified Assumption" heading above can finally come down.
 
+**UPDATE 2026-08-26 — real run completed, partial confirmation:** ran `scripts/verify_doctavian_template.py` for real. Both `generate_document()` calls (high-risk and low-risk) succeeded with **zero errors** — the `{"data": {}}` wrapper fix works, `TEMPLATE_READ_FAILED` is gone. Generated document URNs: high=`c7445d1c-7b52-41c1-bd14-986f052ea407` (name `verify-high-1ca3df02`), low=`aaad3402-452e-4b69-a0f2-45d2fdf5d498` (name `verify-low-25a8a43b`). **Still pending:** the one manual step the script always required — actually opening both documents (via Postman's document-download request from the same Mission 1 collection, or the `demo.portal.doctavian.com` portal) and confirming the HIGH doc says "TWO approvers" and the LOW doc says "ONE approver". Generation succeeding is strong evidence the fix is right, but isn't by itself proof the IF field evaluated correctly (both documents could theoretically render identical text). Do not mark Phase 2 fully closed until this visual check is done.
+
 ## Separate fix (2026-08-25): audit-log hash timestamp format
 
 While reviewing a Xano AI-agent-generated Function Stack for Phase 1/5
