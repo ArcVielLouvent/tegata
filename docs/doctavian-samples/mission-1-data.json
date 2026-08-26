@@ -1,0 +1,30 @@
+{
+  "data": {
+    "Customer": [{
+      "Name": "Acme Logistics Group",
+      "AccountId": "0001008213",
+      "EffectiveDate": "Jun 30, 2025",
+      "ContractTermMonths": 24,
+      "LineItems": [
+        {
+          "ServiceName": "Document Generation API - Enterprise Tier",
+          "Quantity": 1,
+          "UnitPrice": 4800,
+          "LineAmount": 4800
+        },
+        {
+          "ServiceName": "Digital Signatures API - Volume Bundle",
+          "Quantity": 1,
+          "UnitPrice": 3200,
+          "LineAmount": 3200
+        },
+        {
+          "ServiceName": "Priority Support Add-on",
+          "Quantity": 6,
+          "UnitPrice": 250,
+          "LineAmount": 1500
+        }
+      ]
+    }]
+  }
+}
