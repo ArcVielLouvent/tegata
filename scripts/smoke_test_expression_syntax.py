@@ -1,21 +1,32 @@
 #!/usr/bin/env python3
 """
-SMOKE TEST — validates a hypothesis, not part of the production pipeline.
+SMOKE TEST — historical, hypothesis now SUPERSEDED. Kept for reference
+only, not part of the production pipeline.
 
 We've hit TEMPLATE_READ_FAILED repeatedly even after fixing the OOXML
 field structure (verified 8/8/8 begin/separate/end — structurally valid).
 
-New hypothesis: Doctavian's template engine reads PLAIN TEXT placeholders
-in its own expression syntax (e.g. "{!resource}", seen in their own
-"fieldExpression"/"variables" examples like "{!$now()}"), not native Word
-MERGEFIELD/IF field codes at all. If true, our carefully-constructed
-OOXML fields were never going to work regardless of how "correct" their
-internal XML structure was — the reader may not even attempt to parse
-Word field codes.
+Original hypothesis (as of 2026-08-24): Doctavian's template engine reads
+PLAIN TEXT placeholders in its own expression syntax (e.g. "{!resource}"),
+not native Word MERGEFIELD/IF field codes at all.
 
-This script builds the SIMPLEST POSSIBLE template (one paragraph, one
-plain-text placeholder, zero Word fields, zero conditionals) to isolate
-that one question before spending more time on anything more complex.
+RESOLVED 2026-08-25 — hypothesis was WRONG, root cause was elsewhere:
+Kanwal (Doctavian) reproduced our exact failure using our REAL template
+(the native Word IF field version from template_builder.py, unchanged)
+and our real generate-document request, then fixed it by ONLY swapping
+the uploaded data file for one with a minimal-but-present top-level
+"data" wrapper key (i.e. {"data": {}}, not a bare {}). The document then
+generated and downloaded successfully — with the native Word IF field
+template completely untouched. This confirms: (a) native Word
+MERGEFIELD/IF fields DO work as originally designed in template_builder.py,
+no rewrite needed, and (b) TEMPLATE_READ_FAILED was a misleading error
+for what was actually a malformed data payload the whole time (Doctavian
+has acknowledged the message is misleading and plans to improve it). See
+scripts/verify_doctavian_template.py for the corrected data payload and
+PROJECT_STATUS.md for the full timeline. This script is left as-is
+(still uploads a bare {}) purely as a historical record of the
+now-abandoned plain-text-placeholder hypothesis — do not use it as a
+template for new work.
 
 Usage:
     export DOCTAVIAN_API_KEY=...
