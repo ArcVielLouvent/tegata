@@ -29,6 +29,28 @@ from datetime import UTC, datetime
 from models import AuditLogEntry  # packages/schema/python, see pyproject.toml pythonpath
 
 
+def _canonical_timestamp(timestamp: datetime) -> str:
+    """Canonical ISO-8601 UTC string used inside the hashed payload:
+    'YYYY-MM-DDTHH:MM:SSZ' — whole-second precision, explicit 'Z' suffix.
+
+    Deliberately NOT Python's datetime.isoformat(): for a UTC-aware
+    datetime, isoformat() produces a '+00:00' offset suffix and includes
+    microseconds when present (e.g. '2026-08-25T10:00:00.123456+00:00'),
+    neither of which matches Xano's serialization. Xano's own generated
+    Function Stack for this project explicitly expects
+    'Y-m-d\\TH:i:s\\Z' (whole-second, 'Z' suffix) — confirmed 2026-08-25.
+    Using a mismatched format here would make every hash silently
+    disagree with the real Xano implementation despite both sides being
+    "correct" by their own convention.
+
+    Converts to UTC first in case a caller passes a non-UTC-aware
+    datetime; truncates to whole seconds (Xano's native timestamp type
+    does not reliably preserve microsecond precision either)."""
+    if timestamp.tzinfo is not None:
+        timestamp = timestamp.astimezone(UTC)
+    return timestamp.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _content_hash(
     warrant_id: str,
     event: str,
@@ -42,7 +64,7 @@ def _content_hash(
     payload = {
         "warrant_id": warrant_id,
         "event": event,
-        "timestamp": timestamp.isoformat(),
+        "timestamp": _canonical_timestamp(timestamp),
         "actor": actor,
         "prev_hash": prev_hash,
     }

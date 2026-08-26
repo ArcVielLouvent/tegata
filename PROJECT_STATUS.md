@@ -83,9 +83,102 @@ Diagnostic results (curl against the real API), consistent with the documented r
 | `Authorization` only (any value) | `AUTHORIZATION_ERROR`: "Unauthorized ApiKeyNotFound" |
 | Both `x-api-key` + `Authorization` (plain or `Bearer`) | `AUTHORIZATION_ERROR`: "Google token is invalid or expired." (misleading message — actually Microsoft/Entra ID, confirmed via the Postman collection's OAuth config) |
 
-**Status: unblocked, third fix applied, not yet re-verified against the real API.** Next: re-run `scripts/verify_doctavian_template.py` (now uploads template + data, no `create_template()` call) with a fresh access token. If `GET_FILE_FROM_STORAGE_FAILED` persists even with `data.urn` populated, the next thing to check is whether `document.locale`/`document.timezone` (present in every official example but absent from our current call body) are secretly required too — add those next before escalating to Kanwal again.
+**FOURTH ISSUE — ACTUAL ROOT CAUSE, FOUND 2026-08-25 (Kanwal's investigation of the reproduction package sent 2026-08-24):** `TEMPLATE_READ_FAILED` was never about the template at all. Kanwal reproduced the exact failure using our **unmodified real template** (the native Word `IF` merge field from `template_builder.py`, untouched) and our real generate-document request, then fixed it by changing **only** the uploaded data file: our code was uploading a bare `{}` as the data JSON, but Doctavian's engine requires the file's contents to be wrapped in a top-level `"data"` key — even an empty one, i.e. `{"data": {}}`. With that one change, the document generated and downloaded successfully. Doctavian's team has acknowledged `TEMPLATE_READ_FAILED` is a misleading error name for what is actually a malformed-data-payload failure, and plans to improve the message.
 
-Once unblocked: run `scripts/verify_doctavian_template.py` for real, confirm the Word IF field renders differently for high vs low risk. If it does NOT, the fix is isolated to `template_builder.py` only.
+**Two important implications:**
+1. The native Word `IF` merge field approach in `template_builder.py` is confirmed correct — no rewrite needed. `scripts/smoke_test_expression_syntax.py`'s plain-text-placeholder hypothesis is now superseded; do not act on it (its header comment has been updated to say so).
+2. `scripts/verify_doctavian_template.py` has been updated to upload `{"data": {}}` instead of `{}` — **fix applied but not yet re-run against the real API** (Claude's sandbox cannot reach `demo.api.doctavian.com`). Kanwal's two reference files (`data-simple.json`, the minimal fix; `mission-1-data.json`, a richer nested-data example from Doctavian's own Mission 1 quickstart) are saved under `docs/doctavian-samples/` for reference.
+
+**Next action, high priority:** run `scripts/verify_doctavian_template.py` for real with a fresh `DOCTAVIAN_ACCESS_TOKEN`, confirm the Word IF field renders differently for high vs low risk as originally intended. If this succeeds, mark Phase 2 fully resolved — the "CRITICAL — Unverified Assumption" heading above can finally come down.
+
+## Separate fix (2026-08-25): audit-log hash timestamp format
+
+While reviewing a Xano AI-agent-generated Function Stack for Phase 1/5
+(`resource_tiers`/`requests`/`warrants`/`audit_log` tables, `score` /
+`derive_approval_requirement` / `validate_transition` / `append_audit_log`
+functions, matching endpoints, RBAC, and the `auto_expire_sweep` task —
+see "Xano setup, first pass" section further below for the full review),
+the Xano agent's own summary flagged that its hashing logic expects
+timestamps formatted as `Y-m-d\TH:i:s\Z` (i.e. `2026-08-25T10:00:00Z`).
+
+Checked against the Python reference: `audit_log.py` was using
+`timestamp.isoformat()`, which for a UTC-aware datetime produces
+`2026-08-25T10:00:00+00:00` — a `+00:00` suffix, not `Z`, and includes
+microseconds when present. Either difference would make every audit-log
+hash silently disagree between Xano and Python, even though both sides
+are internally self-consistent. **Fixed:** `audit_log.py` now has a
+`_canonical_timestamp()` helper that formats as `YYYY-MM-DDTHH:MM:SSZ`
+(whole-second precision, explicit `Z`) before hashing. All 117 existing
+tests still pass (no test hardcodes a literal expected hash string, so
+this was a safe internal change). `docs/xano-setup.md` §6 now spells out
+this exact format requirement instead of a vague "ISO 8601."
+
+**Still needs doing:** actually feed identical inputs into the real
+Xano `append_audit_log` function and confirm the hash matches the
+Python reference byte-for-byte — this fix removes the most likely
+silent mismatch, but hasn't been confirmed against the live endpoint
+yet.
+
+## Xano setup, first pass (2026-08-25) — built via Xano's own AI agent
+
+Rather than clicking through `docs/xano-setup.md` by hand, this session
+used Xano's built-in AI agent to generate the workspace. Result, per
+screenshots reviewed:
+
+- **Tables (4, matching the guide):** `resource_tiers`, `requests`,
+  `warrants`, `audit_log`. (Two extra tables — `user` and `event_log` —
+  came pre-seeded with the workspace template and are unrelated;
+  harmless, no action needed.)
+- **Functions (4, matching the guide 1:1):** `score` (mirrors
+  `risk_engine.py`), `derive_approval_requirement` (mirrors
+  `approval_rules.py`), `validate_transition` (mirrors
+  `state_machine.py`), `append_audit_log` (mirrors `audit_log.py`,
+  referenced by 2 endpoints + 1 task — i.e. it's wired in as a shared
+  function, not just a standalone manually-triggered endpoint, which
+  matches the guide's intent in §6).
+- **Endpoints (5):** `POST /score`, `POST /derive-approval-requirement`,
+  `POST /audit-log/append` (restricted to `security_admin`),
+  `GET /warrants` (role-scoped — requesters see only their own),
+  `GET /audit-log` (restricted to `security_admin`).
+- **RBAC:** `user.role` enum extended with `requester` / `approver` /
+  `security_admin`, enforced via `$auth.role` checks in endpoints.
+- **Scheduled task:** `auto_expire_sweep`, every 1 minute, matching §7's
+  logic (query active + past-expiry, validate transition, update
+  status, append `auto_expired` audit entry).
+
+**Assessment: structurally matches the plan well.** The 1-minute
+scheduled-task interval is coarser than the guide's suggested 10-15s
+for demo recording, but that's a Xano platform granularity choice, not
+a bug — an `expires_at` a few seconds out will just wait up to ~1 minute
+for the next sweep tick, which is still fine for a demo as long as the
+video accounts for that latency (or the demo uses a duration long
+enough that 1-minute sweep granularity isn't visually awkward).
+
+**Not yet verified — this is the actual "is it done" test, still
+outstanding:** none of the four functions or the scheduled task have
+been exercised with the exact inputs from their corresponding pytest
+files and checked for identical output. This is the real bar per this
+project's established methodology (see the "Quick reference" table at
+the top of `docs/xano-setup.md`), not "the Function Stack exists."
+Concretely still to do:
+- [ ] Feed `test_risk_engine.py`'s exact cases into the real `score`
+      endpoint, confirm identical score + tier
+- [ ] Feed `test_approval_rules.py`'s cases into
+      `derive_approval_requirement`, confirm identical output
+      (especially the duration-capping cases)
+- [ ] Feed `test_state_machine.py`'s invalid-transition cases into
+      `validate_transition`, confirm it rejects them the same way
+- [ ] Feed `test_audit_log.py`'s cases into `append_audit_log`, confirm
+      byte-identical SHA-256 hashes (this is where the timestamp-format
+      fix above matters most)
+- [ ] Walk one warrant through the full `docs/xano-setup.md` §8
+      end-to-end checklist by hand
+
+**Correctly NOT attempted:** no signature-verification/anti-replay
+endpoint was built, consistent with `docs/xano-setup.md` §9's flag that
+this has no Python reference or test file yet — building it blind in
+Xano would risk silently reintroducing the exact replay bug this
+project's core security claim depends on catching.
 
 ## Sponsor Credentials Status (update from earlier)
 - [x] Doctavian — received. API key + demo base URL in `.env` (not committed). Postman collection used to build accurate client code.
@@ -154,20 +247,23 @@ Phases 0-4 have tested logic in place, AND Phases 3-4's core mechanisms are now 
 ## Not Yet Done / Known Gaps (updated)
 - Real Xano scheduled task for the auto-expire sweep — manual step, not started (guide ready in `docs/xano-setup.md` section 8)
 - Real Xano Function Stack for `POST /audit-log/append` — manual step, not started (guide ready in `docs/xano-setup.md` section 7); in particular, the canonical-JSON serialization must be verified to produce byte-identical hashes to the Python reference before trusting it
-- Doctavian TEMPLATE_READ_FAILED: still waiting on Kanwal's team
+- Doctavian: real root cause found 2026-08-25 (data payload missing its `"data"` wrapper key — see Phase 2 section above), fix applied to `scripts/verify_doctavian_template.py`, **not yet re-run against the real API**
 - Foxit real end-to-end round-trip: confirmed working (see Phase 3/4 notes above)
 - `phase-sync.sh` still not run against a real GitHub repo/`gh` CLI
 - None of phase/2 through phase/5 merged to the real GitHub `main` yet (see "Merging status" above)
+- Xano: first-pass workspace built via Xano's own AI agent (see "Xano setup, first pass" section above) — structurally matches the plan, but **not yet verified against any pytest reference case**
 
 ## Notes for the Next Session
 Phases 0-5 have tested reference logic in place, plus Phase 3/4's core mechanisms confirmed against real APIs. `phase/5-auto-expire` was branched from `phase/4-ai-frontdoor`, so it linearly contains every prior phase's commits.
 
 **Immediate priorities, in order:**
-1. **Merge the branch chain to `main`** via GitHub UI (push `phase/5-auto-expire`, open a PR, wait for `phase-5.yml` CI green, merge) — this has been deferred three sessions running and the chain keeps growing; do this before piling Phase 6 on top.
-2. **Set up the real Xano account** (still not started at all — self-serve, no blocker, see `docs/xano-setup.md` for the full table + Function Stack spec across Phases 1, 3, 5) — this is now the single biggest gap between "tested reference logic" and "an actually running backend."
-3. Check Doctavian/Kanwal's inbox for a reply on `TEMPLATE_READ_FAILED`.
-4. **Phase 6 — Frontend Demo** (Next.js) is next up per ROADMAP.md once Xano is real and reachable — a UI can't meaningfully demo against reference-only Python logic, it needs the actual Xano API endpoints.
+1. **Re-run `scripts/verify_doctavian_template.py` for real** with a fresh `DOCTAVIAN_ACCESS_TOKEN` — the actual root cause of `TEMPLATE_READ_FAILED` was found and fixed this session (see Phase 2 section above), this just needs a real confirmation run. If it succeeds, the Doctavian blocker that's dragged on since Phase 2 is finally, genuinely closed.
+2. **Verify the Xano workspace (built via Xano's AI agent this session) against the pytest reference cases** — see the checklist under "Xano setup, first pass" above. Structurally it looks right, but nothing has actually been fed through it and compared to `test_risk_engine.py` / `test_approval_rules.py` / `test_state_machine.py` / `test_audit_log.py` yet. Pay special attention to the audit-log hash — the timestamp-format fix applied this session (`Z` suffix, whole-second precision) needs to be confirmed against the live `append_audit_log` function, not just assumed fixed.
+3. **Merge the branch chain to `main`** via GitHub UI (push `phase/5-auto-expire`, open a PR, wait for `phase-5.yml` CI green, merge) — this has been deferred multiple sessions running and the chain keeps growing; do this once 1-2 above are confirmed, before piling Phase 6 on top.
+4. **Phase 6 — Frontend Demo** (Next.js) is next up per ROADMAP.md once Xano is verified and reachable — a UI can't meaningfully demo against reference-only Python logic or an unverified Xano workspace, it needs the actual confirmed-correct Xano API endpoints.
 
-**Worth doing once real Xano tables exist:** re-run `scripts/verify_auto_expire_demo.py`'s logic (or a Xano-side equivalent) against the real scheduled task from `docs/xano-setup.md` section 8, to confirm the actual Function Stack sweep behaves identically to the Python reference in real time, not just in pytest.
+**Worth doing once the Xano scheduled task is confirmed correct:** re-run `scripts/verify_auto_expire_demo.py`'s logic (or a Xano-side equivalent) against the real `auto_expire_sweep` task, to confirm it behaves identically to the Python reference in real time, not just in pytest. Note the real task runs every 1 minute (Xano platform granularity), coarser than the guide's suggested 10-15s — fine for a demo as long as the recording accounts for up to ~1 minute of sweep latency.
 
-**Environment note:** working from local VS Code now, not GitHub Codespaces (billing ran out) — this doesn't change anything about the Doctavian/Foxit network restrictions (those were about Claude's own sandbox, not Codespaces specifically), but any workflow notes that assumed a Codespace terminal should be read as "your local machine" instead going forward.
+**Still completely unaddressed, flagged since Phase 3:** the Xano-side signature-verification + anti-replay endpoint (checks the Foxit-signed document, verifies the warrant's `used` flag, flips it, transitions `signed -> active`) has no Python reference implementation or test file yet, unlike everything else in this project. Correctly not attempted in this session's Xano build either. Needs its own reference module (mirroring the `state_machine.py`/`audit_log.py` pattern) before it's safe to build in Xano — see `docs/xano-setup.md` §9.
+
+**Environment note:** working from local VS Code, not GitHub Codespaces (billing ran out) — this doesn't change anything about the Doctavian/Foxit network restrictions (those were about Claude's own sandbox, not Codespaces specifically), but any workflow notes that assumed a Codespace terminal should be read as "your local machine" instead going forward.
