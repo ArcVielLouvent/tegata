@@ -300,3 +300,44 @@ class DoctavianClient:
 
         data = self._post("/v1/documents/document/generate", body)
         return data["result"]["data"]["document"]
+
+    def download_document(self, document_id: str) -> bytes:
+        """Downloads a generated document's raw bytes.
+
+        Endpoint confirmed 2026-08-26 from the real Postman collection's
+        "Doctavian Demo / Mission 1... / Step 6 — Download the document"
+        request: GET /v1/documents/document/{document_id}/download.
+        document_id is the generated document's urn (the value returned
+        as generate_document()'s result["urn"] — note this may or may not
+        include a trailing ':filename.ext' suffix depending on the
+        response; pass whatever generate_document() returned verbatim).
+
+        Raises DoctavianAPIError on failure. Returns raw bytes (the
+        actual .docx/.pdf/etc file content) on success."""
+        url = f"{self.config.base_url}/v1/documents/document/{document_id}/download"
+        headers = self._headers()
+        headers.pop("Content-Type", None)
+        response = self.session.get(url, headers=headers, timeout=self.config.timeout_seconds)
+
+        if response.status_code >= 400:
+            try:
+                data = response.json() if response.content else {}
+            except ValueError:
+                data = {}
+            if "error" in data:
+                inner = data["error"]
+                first_inner = (inner.get("innerErrors") or [{}])[0]
+                raise DoctavianAPIError(
+                    status_code=response.status_code,
+                    code=first_inner.get("code"),
+                    message=first_inner.get("userMessage") or inner.get("message", "Unknown error"),
+                    raw=data,
+                )
+            raise DoctavianAPIError(
+                status_code=response.status_code,
+                code=data.get("code"),
+                message=data.get("message", response.text or "Unknown error"),
+                raw=data,
+            )
+
+        return response.content

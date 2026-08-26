@@ -1,32 +1,31 @@
 #!/usr/bin/env python3
 """
-SMOKE TEST — historical, hypothesis now SUPERSEDED. Kept for reference
-only, not part of the production pipeline.
+SMOKE TEST — REOPENED 2026-08-26. Do not treat this as superseded.
 
-We've hit TEMPLATE_READ_FAILED repeatedly even after fixing the OOXML
-field structure (verified 8/8/8 begin/separate/end — structurally valid).
+Timeline:
+- 2026-08-24: hypothesized Doctavian's template engine reads PLAIN TEXT
+  placeholders in its own expression syntax (e.g. "{!resource}", seen in
+  their own "fieldExpression"/"variables" examples like "{!$now()}"),
+  not native Word MERGEFIELD/IF field codes at all.
+- 2026-08-25: Kanwal (Doctavian) reproduced our TEMPLATE_READ_FAILED
+  error using our unmodified native-Word-field template and fixed it by
+  changing only the uploaded data file (needed a top-level "data"
+  wrapper key). This was read at the time as fully confirming the
+  native-Word-field approach — but that reading was premature: it only
+  proved the generate/download PIPELINE works, not that field
+  substitution or the IF condition actually evaluate correctly.
+- 2026-08-26: a real run (scripts/verify_doctavian_template.py) showed
+  BOTH high- and low-risk documents came back with every merge field
+  blank and identical static fallback text, with the field codes
+  themselves completely untouched in the raw XML. This is exactly the
+  failure mode this smoke test was originally designed to catch. It
+  should be run for real now.
 
-Original hypothesis (as of 2026-08-24): Doctavian's template engine reads
-PLAIN TEXT placeholders in its own expression syntax (e.g. "{!resource}"),
-not native Word MERGEFIELD/IF field codes at all.
-
-RESOLVED 2026-08-25 — hypothesis was WRONG, root cause was elsewhere:
-Kanwal (Doctavian) reproduced our exact failure using our REAL template
-(the native Word IF field version from template_builder.py, unchanged)
-and our real generate-document request, then fixed it by ONLY swapping
-the uploaded data file for one with a minimal-but-present top-level
-"data" wrapper key (i.e. {"data": {}}, not a bare {}). The document then
-generated and downloaded successfully — with the native Word IF field
-template completely untouched. This confirms: (a) native Word
-MERGEFIELD/IF fields DO work as originally designed in template_builder.py,
-no rewrite needed, and (b) TEMPLATE_READ_FAILED was a misleading error
-for what was actually a malformed data payload the whole time (Doctavian
-has acknowledged the message is misleading and plans to improve it). See
-scripts/verify_doctavian_template.py for the corrected data payload and
-PROJECT_STATUS.md for the full timeline. This script is left as-is
-(still uploads a bare {}) purely as a historical record of the
-now-abandoned plain-text-placeholder hypothesis — do not use it as a
-template for new work.
+Run scripts/verify_doctavian_template.py FIRST — it now tests a
+narrower, simpler hypothesis (put real values in the data file, keep
+the native Word template unchanged) and is cheaper to rule out. Only
+run this script if that one still fails (fields still blank / IF still
+not evaluated even with real data present).
 
 Usage:
     export DOCTAVIAN_API_KEY=...
@@ -72,14 +71,14 @@ def main():
     uploaded_template = client.upload_template(tmp_docx_path)
     print(f"  {uploaded_template}")
 
-    print("\nUploading minimal data blob...")
+    print("\nUploading data blob with a REAL value (not empty this time)...")
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
-        json.dump({}, tmp)
+        json.dump({"data": {"resource": "db_payment_prod"}}, tmp)
         tmp_data_path = Path(tmp.name)
     uploaded_data = client.upload_data(tmp_data_path)
     print(f"  {uploaded_data}")
 
-    print("\nGenerating (plain-text placeholder, no Word fields)...")
+    print("\nGenerating (plain-text {!resource} placeholder, no Word fields)...")
     try:
         result = client.generate_document(
             template_name="smoke-test-plain-text",
@@ -89,19 +88,36 @@ def main():
             external_request_id=f"smoke-test-{uuid.uuid4().hex[:8]}",
             data_urn=uploaded_data["id"],
         )
-        print(f"\nSUCCESS: {result}")
-        print("\n=> Hypothesis CONFIRMED: plain-text {!...} placeholders work.")
-        print("=> Native Word MERGEFIELD/IF fields are the wrong approach entirely.")
-        print("=> template_builder.py needs a full rewrite using plain text placeholders.")
-    except Exception as e:
-        print(f"\nFAILED: {e}")
-        print("\n=> Hypothesis NOT confirmed by this alone — TEMPLATE_READ_FAILED")
-        print("   persists even with zero Word fields, so the problem is elsewhere")
-        print("   (not field structure, not expression syntax). Time to email Kanwal")
-        print("   with a minimal, fully reproducible failing case attached.")
+        print(f"\nGenerated: {result}")
 
-    os.unlink(tmp_docx_path)
-    os.unlink(tmp_data_path)
+        print("Downloading to check whether {!resource} was actually substituted...")
+        docx_bytes = client.download_document(result["urn"])
+        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
+            tmp.write(docx_bytes)
+            downloaded_path = Path(tmp.name)
+        text = "\n".join(p.text for p in Document(downloaded_path).paragraphs if p.text.strip())
+        downloaded_path.unlink(missing_ok=True)
+
+        print(f"\nDownloaded document text:\n{text}\n")
+
+        if "db_payment_prod" in text:
+            print("=> CONFIRMED: plain-text {!...} placeholders DO get substituted.")
+            print("=> template_builder.py needs a rewrite using plain-text placeholders")
+            print("   instead of native Word MERGEFIELD/IF fields — see PROJECT_STATUS.md.")
+        elif "{!resource}" in text:
+            print("=> NOT confirmed: the literal '{!resource}' text passed through")
+            print("   unsubstituted. Plain-text expression syntax isn't the answer either.")
+            print("   Time to ask Kanwal directly what syntax their engine evaluates.")
+        else:
+            print("=> UNEXPECTED: neither the literal placeholder nor the real value")
+            print("   appears in the output. Inspect the downloaded file manually.")
+    except Exception as e:
+        print(f"\nFAILED (generate or download raised): {e}")
+        print("\n=> Inconclusive — the API call itself failed, so this doesn't tell us")
+        print("   anything about placeholder substitution one way or the other.")
+
+    tmp_docx_path.unlink(missing_ok=True)
+    tmp_data_path.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
