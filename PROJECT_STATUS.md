@@ -192,6 +192,8 @@ project's core security claim depends on catching.
 
 **`template_builder.py` will need a full rewrite** once the conditional syntax is confirmed — native Word field generation there is now proven to be the wrong approach entirely, not just an edge case. Deliberately not rewriting it yet to avoid two rounds of changes; waiting for the conditional-syntax answer first so it's a single, final rewrite.
 
+**Round 1 run 2026-08-26 (real API):** all four candidates failed. Result was informative though: candidates using the `{!...}` wrapper (`IF` with `==`, `IF` with `=`, ternary `?:`) all rendered as an **empty string** — not literal passthrough — meaning Doctavian's `{!...}` parser genuinely attempts to evaluate an expression and silently renders nothing when the function/operator isn't recognized. The Handlebars-style `{{#if}}...{{/if}}` candidate rendered **completely unchanged**, meaning `{{...}}` isn't recognized as syntax at all. `scripts/smoke_test_conditional_syntax.py` updated for round 2: testing `$IF`/`$IIF` (namespaced with `$`, based on the real `{!$now()}` example already documented in `doctavian_client.py`'s own module docstring). **Round 2 not yet run.** If round 2 also fails, stop guessing — escalate to Kanwal with the specific, confirmed findings above (this is now 7 candidates across 2 well-reasoned rounds, not random guessing).
+
 ## Sponsor Credentials Status (update from earlier)
 - [x] Doctavian — received. API key + demo base URL in `.env` (not committed). Postman collection used to build accurate client code.
 - [ ] Foxit — received eSign API dashboard access (client_id/client_secret). Not yet wired into code (Phase 3).
