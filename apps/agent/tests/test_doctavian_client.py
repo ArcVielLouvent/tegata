@@ -364,6 +364,11 @@ def test_generate_document_success_matches_real_response_shape(client):
     assert sent_body["externalContext"]["id"] == "req-001"
     var_names = {v["name"] for v in sent_body["data"]["variables"]}
     assert var_names == {"resource", "risk_score", "risk_tier", "required_approver_count"}
+    # locale/timezone must always be sent — every real Doctavian example
+    # includes them; their absence is suspected to have caused a
+    # mis-attributed TEMPLATE_READ_FAILED in real testing.
+    assert sent_body["document"]["locale"] == "en"
+    assert sent_body["document"]["timezone"] == "UTC"
 
 
 @responses_lib.activate

@@ -257,9 +257,21 @@ class DoctavianClient:
         document_path: str = "root",
         data_urn: str | None = None,
         data_load_method: str = "Storage",
+        document_locale: str = "en",
+        document_timezone: str = "UTC",
     ) -> dict:
         """Generates a document from a template + variables. Returns the
         parsed response body's result.data.document object.
+
+        document_locale/document_timezone: every real example in
+        Doctavian's own Postman collection (both the generic
+        "Document Generate" example and their own quickstart mission
+        Step 5) includes these in the document object — our earlier
+        calls omitted them entirely, which may be why TEMPLATE_READ_FAILED
+        persisted even with a verified-valid real Word docx as the
+        template (i.e. the error may be mis-attributed to template
+        reading when the real problem is a missing required field
+        elsewhere in the request).
 
         Raises DoctavianAPIError on failure (e.g. TEMPLATE_NOT_FOUND)."""
         body: dict[str, Any] = {
@@ -279,6 +291,8 @@ class DoctavianClient:
                 "fileFormat": document_file_format,
                 "deliveryMethod": document_delivery_method,
                 "path": document_path,
+                "locale": document_locale,
+                "timezone": document_timezone,
             },
         }
         if data_urn is not None:
