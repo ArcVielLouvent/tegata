@@ -85,10 +85,13 @@ def main():
 
     print("\nStep 0b: uploading a minimal data blob...")
     print("(their own quickstart examples ALWAYS pair template.urn with a")
-    print(" data.urn from a separate upload — this was missing before and")
-    print(" is the likely real cause of GET_FILE_FROM_STORAGE_FAILED)")
+    print(" data.urn from a separate upload — REAL ROOT CAUSE, confirmed by")
+    print(" Kanwal 2026-08-25: the JSON body must wrap its contents in a")
+    print(" top-level \"data\" key, i.e. {\"data\": {...}} — NOT a bare {}.")
+    print(" A bare {} is what TEMPLATE_READ_FAILED actually meant this whole")
+    print(" time, misleadingly reported as a template-read error.")
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
-        json.dump({}, tmp)
+        json.dump({"data": {}}, tmp)
         tmp_data_path = Path(tmp.name)
     uploaded_data = client.upload_data(tmp_data_path)
     print(f"  Uploaded: {uploaded_data}")
