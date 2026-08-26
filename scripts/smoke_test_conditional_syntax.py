@@ -11,35 +11,45 @@ What's still unknown: the syntax for a CONDITIONAL expression (Tegata's
 actual differentiator — the approval clause must read differently for
 high vs low risk, not just substitute a flat value). We have no
 documentation for this (their "Elements Reference" page is JS-rendered
-and inaccessible to Claude's sandbox), so this script tries several
-plausible candidates in ONE template/generate/download round-trip,
-each in its own clearly-labeled paragraph, so a single run tells us
-which (if any) actually got evaluated instead of passed through as
-literal text.
+and inaccessible to Claude's sandbox).
 
-Candidates tested (labelled A-D in the output):
-    A. IF(...) function call, double-equals, Word-IF-like quoting:
-       {!IF(required_approver_count == "2", "TWO approvers", "ONE approver")}
-    B. IF(...) function call, single-equals (mirrors native Word IF
-       field's own "=" comparison operator, just moved inside {!...}):
-       {!IF(required_approver_count = "2", "TWO approvers", "ONE approver")}
-    C. Handlebars-style block helper:
-       {{#if required_approver_count == "2"}}TWO approvers{{else}}ONE approver{{/if}}
-    D. Ternary expression (common in JS/GraphQL-like expression languages,
-       and Doctavian's own docs reference "fieldExpression" variables
-       resembling GraphQL):
-       {!required_approver_count == "2" ? "TWO approvers" : "ONE approver"}
+ROUND 1 RESULTS (2026-08-26, real API run):
+    A. {!IF(required_approver_count == "2", "TWO approvers", "ONE approver")}
+       -> rendered as EMPTY STRING (not literal passthrough)
+    B. {!IF(required_approver_count = "2", "TWO approvers", "ONE approver")}
+       -> rendered as EMPTY STRING
+    C. {{#if required_approver_count == "2"}}TWO approvers{{else}}ONE approver{{/if}}
+       -> rendered COMPLETELY UNCHANGED (literal passthrough)
+    D. {!required_approver_count == "2" ? "TWO approvers" : "ONE approver"}
+       -> rendered as EMPTY STRING
+
+This is informative, not a dead end: A/B/D all used the "{!...}" wrapper
+and came back EMPTY rather than passed through literally, meaning
+Doctavian's "{!...}" parser DOES attempt to evaluate whatever's inside
+it as a real expression (unlike "{{...}}", which it doesn't recognize
+as a syntax at all and leaves completely untouched). The specific
+function names/operators we guessed (bare "IF", "?:") just aren't
+right.
+
+ROUND 2 (this version): doctavian_client.py's own module docstring
+documents a real example from Doctavian's docs — "{!$now()}" — note the
+"$" prefix before the function name. This suggests built-in functions in
+their expression language are namespaced with "$". Testing "$IF"/"$IIF"
+variants on that basis.
 
 Usage:
     export DOCTAVIAN_API_KEY=...
     export DOCTAVIAN_ACCESS_TOKEN=...
     python scripts/smoke_test_conditional_syntax.py
 
-If NONE of these evaluate correctly, stop guessing — reply to Kanwal's
-thread with this exact question: "we've confirmed {!fieldname} plain-text
-substitution works from the data file, but need the syntax for
-conditional/branching content (e.g. show different text depending on
-whether a field equals a given value) — what's the correct syntax?"
+If NONE of round 2's candidates evaluate correctly either, STOP
+guessing — this has now been tried across two well-reasoned rounds (7
+candidates total) with concrete, specific results to hand Kanwal. Reply
+to her thread with exactly this: "we've confirmed {!fieldname} plain-text
+substitution works from the data file, and confirmed {!...} does attempt
+to evaluate function-like expressions (unrecognized ones silently render
+empty rather than erroring or passing through) — what is the correct
+function name/syntax for an IF/conditional expression?"
 """
 import json
 import os
@@ -55,11 +65,12 @@ sys.path.insert(0, str(_AGENT_SRC))
 
 from tegata_agent.doctavian_client import DoctavianClient, DoctavianConfig  # noqa: E402
 
+# Round 1 candidates (A/B/C/D) all failed -- see docstring above for exact
+# results. Round 2 tests the "$"-prefixed built-in function hypothesis.
 CANDIDATES = {
-    "A (IF, ==)": 'A: {!IF(required_approver_count == "2", "TWO approvers", "ONE approver")}',
-    "B (IF, =)": 'B: {!IF(required_approver_count = "2", "TWO approvers", "ONE approver")}',
-    "C (Handlebars)": 'C: {{#if required_approver_count == "2"}}TWO approvers{{else}}ONE approver{{/if}}',
-    "D (ternary)": 'D: {!required_approver_count == "2" ? "TWO approvers" : "ONE approver"}',
+    "E": 'E: {!$IF(required_approver_count == "2", "TWO approvers", "ONE approver")}',
+    "F": 'F: {!$IF(required_approver_count = "2", "TWO approvers", "ONE approver")}',
+    "G": 'G: {!$IIF(required_approver_count == "2", "TWO approvers", "ONE approver")}',
 }
 
 
@@ -76,7 +87,7 @@ def main():
     )
 
     doc = Document()
-    doc.add_paragraph("Conditional syntax candidates (required_approver_count = 2 in the data):")
+    doc.add_paragraph("Conditional syntax candidates, round 2 (required_approver_count = 2):")
     for label, text in CANDIDATES.items():
         doc.add_paragraph(text)
     with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
@@ -126,7 +137,7 @@ def main():
         print("literally 'TWO approvers' with no leftover syntax characters):")
         any_passed = False
         for line in lines:
-            if line.startswith(("A:", "B:", "C:", "D:")):
+            if line.startswith(("E:", "F:", "G:")):
                 label, content = line.split(":", 1)
                 content = content.strip()
                 if content == "TWO approvers":
@@ -136,10 +147,14 @@ def main():
                     print(f"  Candidate {label}: FAIL — rendered as: {content!r}")
         if not any_passed:
             print(
-                "\nNone of the candidates evaluated correctly. Stop guessing here — "
-                "reply to Kanwal's thread and ask directly for the conditional/"
-                "branching expression syntax, now that plain-text {!field} "
-                "substitution is confirmed working for flat values."
+                "\nNone of round 2's candidates evaluated correctly either. Stop "
+                "guessing here (7 candidates tried across 2 rounds) — reply to "
+                "Kanwal's thread now with the specific, confirmed findings: "
+                "plain-text {!field} substitution works, {!...} does attempt to "
+                "evaluate function-like expressions (unrecognized ones render "
+                "empty rather than erroring or passing through literally), but "
+                "no IF/ternary/Handlebars syntax tried so far is recognized. "
+                "Ask directly for the correct conditional-expression syntax."
             )
     except Exception as e:
         print(f"\nFAILED (generate or download raised): {e}")
