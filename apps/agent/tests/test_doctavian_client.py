@@ -411,3 +411,41 @@ def test_generate_document_template_not_found_matches_real_error_shape(client):
     assert exc_info.value.status_code == 400
     assert exc_info.value.code == "TEMPLATE_NOT_FOUND"
     assert "couldn't generate" in exc_info.value.message
+
+
+@responses_lib.activate
+def test_download_document_hits_correct_endpoint_and_returns_bytes(client):
+    document_id = "c7445d1c-7b52-41c1-bd14-986f052ea407"
+    fake_docx_bytes = b"PK\x03\x04fake-docx-bytes"
+
+    responses_lib.add(
+        responses_lib.GET,
+        f"{BASE_URL}/v1/documents/document/{document_id}/download",
+        body=fake_docx_bytes,
+        status=200,
+        content_type="application/octet-stream",
+    )
+
+    result = client.download_document(document_id)
+
+    assert result == fake_docx_bytes
+    sent = responses_lib.calls[0].request
+    assert sent.url == f"{BASE_URL}/v1/documents/document/{document_id}/download"
+    assert sent.headers["x-api-key"] == "test-key"
+
+
+@responses_lib.activate
+def test_download_document_error_raises(client):
+    document_id = "does-not-exist"
+    responses_lib.add(
+        responses_lib.GET,
+        f"{BASE_URL}/v1/documents/document/{document_id}/download",
+        json={"code": "DOCUMENT_NOT_FOUND", "message": "No such document."},
+        status=404,
+    )
+
+    with pytest.raises(DoctavianAPIError) as exc_info:
+        client.download_document(document_id)
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.code == "DOCUMENT_NOT_FOUND"
