@@ -102,6 +102,18 @@ Once unblocked: run `scripts/verify_doctavian_template.py` for real, confirm the
 
 **This does not block Xano work** (Phase 1/5 Xano verification is independent of Doctavian) or Phase 6 planning — see the Xano verification section elsewhere in this file for what to do while waiting on Kanwal.
 
+**RESOLVED 2026-08-26 — Kanwal replied with the actual answer.** Full confirmation:
+1. Merge field syntax `{!fieldname}` — confirmed correct, as we'd already found ourselves.
+2. Native Word MERGEFIELD/IF field codes are never processed — "that's expected behavior, not a bug," per Kanwal. Our 2026-08-26 findings were correct, not a fluke.
+3. Expressions use `{!$expression}` (Jexl-based). **No `IF()`/`IIF()` function exists** — this is why all 7 of our candidates failed, since we were guessing function names that don't exist. The correct mechanism for Tegata's use case (swap an entire sentence, not just a value) is Doctavian's `mdoc:paragraph` element: a whole paragraph shown/hidden via a `hidden="{!$expression}"` attribute. Two `mdoc:paragraph` blocks, each hidden under the opposite condition, implement the if/else.
+4. Kanwal attached her own Mission 1 template (`mission-1-agreement.docx`) implementing this exact pattern for a volume-discount clause, plus PDF exports of the full Elements and Expressions references (previously inaccessible — the live docs page is JS-rendered). All saved to `docs/doctavian-samples/`.
+
+**`template_builder.py` fully rewritten** (2026-08-26) to use the confirmed syntax: plain `{!fieldname}` merge fields, no OOXML field-code manipulation anywhere anymore, and two `mdoc:paragraph` blocks (`hidden="{!$required_approver_count != '2'}"` / `hidden="{!$required_approver_count == '2'}"`) for the approval clause — matching Kanwal's real example exactly, including the non-standard quirk that the **closing tag repeats the `name` attribute** (`</mdoc:paragraph name="twoApprovers">`, not just `</mdoc:paragraph>`).
+
+`test_template_builder.py` fully rewritten to match (checks for the plain-text placeholders and `mdoc:paragraph` structure; includes an explicit regression guard — `test_template_uses_confirmed_doctavian_syntax_not_native_word_fields` — asserting `MERGEFIELD`/`fldChar`/`instrText` never reappear in the generated XML). `docs/templates/tegata-warrant.docx` regenerated from the new builder. `scripts/verify_doctavian_template.py` updated to reflect this is now a confirmatory regression check, not an open experiment. All 66 tests on this branch pass.
+
+**Not yet re-run against the real API** (sandbox has no network access) — this is now genuinely the last step. Run `scripts/verify_doctavian_template.py docs/templates/tegata-warrant.docx` for real; a `PASS` diagnosis means Phase 2 is fully, finally done.
+
 ## Sponsor Credentials Status (update from earlier)
 - [x] Doctavian — received. API key + demo base URL in `.env` (not committed). Postman collection used to build accurate client code.
 - [ ] Foxit — received eSign API dashboard access (client_id/client_secret). Not yet wired into code (Phase 3).

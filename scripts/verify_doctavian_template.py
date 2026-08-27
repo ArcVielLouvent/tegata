@@ -3,11 +3,15 @@
 Real-network verification script for the Doctavian integration.
 
 Run this locally (NOT in Claude's sandbox — it cannot reach
-demo.api.doctavian.com). This is the single most important thing to run
-before considering Phase 2 "done", because it tests the assumption this
-whole phase rests on: that Doctavian's engine actually substitutes merge
-fields and evaluates the native Word IF field in our template as real
-conditional logic, not just literal text.
+demo.api.doctavian.com). This is the confirmatory regression test for
+Phase 2's document generation, using Doctavian's CONFIRMED templating
+syntax (Kanwal, 2026-08-26): plain-text {!fieldname} merge fields and
+mdoc:paragraph elements with a "hidden" expression for conditional
+blocks — see template_builder.py's module docstring for the full
+syntax reference and how this was determined (native Word MERGEFIELD/IF
+field codes were tried first and conclusively do not work, regardless
+of the data supplied — see PROJECT_STATUS.md's Phase 2 section for that
+investigation's full history).
 
 Usage:
     export DOCTAVIAN_API_KEY=edff22dbcc244bd0b709d7e632ce12e5
@@ -16,39 +20,37 @@ Usage:
 
     python scripts/verify_doctavian_template.py docs/templates/tegata-warrant.docx
 
+Make sure docs/templates/tegata-warrant.docx is up to date with the
+current template_builder.py before running this — regenerate it with:
+
+    python -c "from tegata_agent.template_builder import build_tegata_template; \\
+        build_tegata_template('docs/templates/tegata-warrant.docx')"
+
+    (run from apps/agent/src on your PYTHONPATH, or adjust sys.path)
+
 What this script does — fully automated, no Postman needed:
     0. Uploads the .docx to Doctavian's Storage as a template.
-    1. Uploads a DATA FILE whose JSON actually contains real values
-       under the top-level "data" key (e.g. {"data": {"resource": ...,
-       "required_approver_count": "2", ...}}) — this is a DIFFERENT,
-       narrower hypothesis than the earlier {"data": {}} fix. That
-       earlier fix (2026-08-25) resolved TEMPLATE_READ_FAILED and proved
-       generation succeeds, but a real run on 2026-08-26 showed BOTH the
-       high- and low-risk documents came back with every merge field
-       blank and identical static fallback text ("ONE approver" in
-       both), with the field codes themselves completely untouched in
-       the raw XML (same field count as the original template). That
-       means Doctavian read NEITHER the inline `variables` list NOR an
-       empty data file as an actual value source. This script tests
-       whether putting REAL flat key/value data inside the uploaded
-       data file (matching MERGEFIELD names) is what Doctavian actually
-       expects to be reads from.
-    2. Generates TWO documents (high risk / low risk) from the SAME
-       unmodified native-Word-field template.
-    3. Downloads both automatically (via the newly added
+    1. Uploads a data file with real flat key/value data under the
+       top-level "data" key (e.g. {"data": {"resource": ...,
+       "required_approver_count": "2", ...}}) — the wrapper key itself
+       was Kanwal's 2026-08-25 fix for TEMPLATE_READ_FAILED, and is
+       required regardless of templating approach.
+    2. Generates TWO documents (high risk / low risk) from the same
+       template.
+    3. Downloads both automatically (via
        DoctavianClient.download_document(), endpoint confirmed from the
        real Postman collection's "Step 6 — Download the document"
        request) and extracts their text with python-docx.
     4. Prints a clear PASS/FAIL diagnosis:
        - PASS: merge fields show real values AND the two documents'
          approval clause genuinely differs ("TWO approvers" vs "ONE
-         approver") -> the data-file hypothesis was correct, no
-         template rewrite needed.
-       - FAIL (fields still blank / clause still identical): the
-         native-Word-field approach itself needs to be abandoned in
-         favor of whatever plain-text/expression syntax Doctavian
-         actually reads (see scripts/smoke_test_expression_syntax.py,
-         reopened 2026-08-26 given this exact failure).
+         approver") -> Phase 2's conditional document generation is
+         confirmed working end-to-end.
+       - FAIL: something has drifted from the confirmed-working syntax
+         (e.g. a template_builder.py edit introduced a typo in an
+         expression, or Doctavian's engine behavior changed) — compare
+         the downloaded text against template_builder.py's docstring
+         and Kanwal's reference files in docs/doctavian-samples/.
 """
 import json
 import os
@@ -192,23 +194,20 @@ def main():
 
     if fields_substituted and clause_differs:
         print(
-            "\nPASS — the data-file hypothesis was correct: putting real "
-            "key/value data in the uploaded data file (under the top-level "
-            "'data' key) is what makes Doctavian substitute merge fields "
-            "and evaluate the IF condition. No template rewrite needed. "
-            "Update PROJECT_STATUS.md to mark Phase 2 fully resolved."
+            "\nPASS — Phase 2 confirmed working end-to-end: merge fields "
+            "substitute correctly and the approval clause genuinely "
+            "differs by risk tier. Update PROJECT_STATUS.md to mark "
+            "Phase 2 fully resolved."
         )
     else:
         print(
-            "\nFAIL — merge fields are still blank and/or the IF condition "
-            "still isn't evaluated, even with real data in the uploaded "
-            "file. The native-Word-field approach in template_builder.py "
-            "does not work with Doctavian's real engine as designed. Next "
-            "step: run scripts/smoke_test_expression_syntax.py (reopened "
-            "2026-08-26) to test whether Doctavian instead expects "
-            "plain-text placeholder syntax like '{!resource}', or ask "
-            "Kanwal directly what syntax their engine actually evaluates "
-            "for both variable substitution and conditional branching."
+            "\nFAIL — something has drifted from the confirmed-working "
+            "syntax. Compare template_builder.py against its own module "
+            "docstring (the confirmed Doctavian syntax reference) and "
+            "against Kanwal's reference files in docs/doctavian-samples/. "
+            "Make sure docs/templates/tegata-warrant.docx was regenerated "
+            "after any template_builder.py change — see this script's "
+            "module docstring for the regeneration command."
         )
 
 
