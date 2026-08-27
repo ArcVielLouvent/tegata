@@ -65,18 +65,23 @@ tegata/
 ├── PROJECT_STATUS.md       # current status & locked-in decisions — read this first each session
 ├── docs/
 │   ├── tegata-concept.md   # full concept spec
+│   ├── xano-setup.md       # ordered, checklist-driven guide to build Xano's Function Stack by hand
+│   ├── xano-verification-worksheet.md  # exact input/output pairs (incl. pre-computed hashes) to verify each Xano endpoint against the Python reference
+│   ├── doctavian-samples/  # reference materials from Doctavian (sample data, real template, Elements/Expressions PDFs) — see its own README
+│   ├── templates/          # generated .docx templates (e.g. tegata-warrant.docx)
 │   ├── benchmarks.md       # (Phase 8) benchmark results
 │   ├── testing.md          # (Phase 8) testing strategy & results
 │   └── sponsor-requirements.md  # (Phase 8) per-sponsor submission checklist
 ├── apps/
-│   ├── agent/               # Python — two-pass NLU + hard schema validation
-│   └── web/                 # Next.js/TypeScript — requester/approver/audit UI
+│   ├── agent/               # Python — two-pass NLU + hard schema validation + risk/approval/state-machine/audit-log/Doctavian/Foxit reference logic
+│   └── web/                 # Next.js/TypeScript — requester/approver/audit UI (Phase 6)
 ├── packages/
 │   └── schema/               # shared data schema (used by agent & web)
 ├── scripts/
-│   └── phase-sync.sh         # syncs phase status ↔ GitHub Issues
+│   ├── phase-sync.sh         # syncs phase status ↔ GitHub Issues
+│   └── verify_*.py           # real-network verification scripts (Doctavian, Foxit, NLU fallback, auto-expire) — see PROJECT_STATUS.md for what's confirmed working
 ├── tests/
-│   └── e2e/                  # Playwright end-to-end
+│   └── e2e/                  # Playwright end-to-end (Phase 6)
 └── .github/workflows/         # one CI workflow per phase
 ```
 
@@ -84,30 +89,38 @@ tegata/
 
 ## Sponsor Credentials & Prerequisites
 
-| Sponsor | How to get access | Status |
-|---|---|---|
-| **Xano** | Sign up via [go.xano.co/devpost-challenge](https://go.xano.co/devpost-challenge), use coupon code `M_Xano_PER_100_2608_1_DevpostHackathon` at checkout → 1 free month of the Essential Instance. Enable *direct workspace pushing* in Settings so the CLI/MCP can push directly. | Not yet registered |
-| **Doctavian** | Email `hello@doctavian.com`, introduce yourself + explain the project needs their dynamic branching/looping document logic. They promise fast credential setup. | Not yet sent, pricing unconfirmed |
-| **Foxit** | Basic PDF manipulation: use their open-source MCP server, no special credentials needed. **Foxit eSign API** (the most critical part for Tegata): email `theodore_castro@foxitsoftware.com` (the official rules page has it written as `.come` — likely a typo; try `.com` first, fall back to the exact address in the official rules if it bounces). | Not yet sent, pricing unconfirmed |
+| Sponsor | Status |
+|---|---|
+| **Doctavian** | Credentials received. Integration built and **confirmed working end-to-end** (Phase 2): risk-scored documents generate with genuinely different approval clauses per tier, using Doctavian's own `{!fieldname}`/`{!$expression}`/`mdoc:paragraph` templating syntax (confirmed directly by their engineering team — see `docs/doctavian-samples/`). |
+| **Foxit** | eSign API credentials received. Integration built and **confirmed working end-to-end** (Phase 3/4): envelope creation, real signature round-trip, status polling, and signed-file download all verified against the live API. |
+| **Xano** | Registered, workspace built (first pass, via Xano's own AI agent — see `PROJECT_STATUS.md`'s "Xano setup" section): tables, Function Stack functions, endpoints, RBAC, and the scheduled auto-expire task are all in place. **Verification against the Python reference is the current open item** — see `docs/xano-verification-worksheet.md` for the exact cases to check. |
 
-> These three steps are meant to start **once the coding phase begins**, not now — to avoid credentials sitting idle before they're actually used. Email Doctavian & Foxit early in that phase since sponsors typically need 1–2 business days to respond.
+> See `PROJECT_STATUS.md` for the full, current, honest status of each integration — this table is a summary, not the source of truth.
 
 ---
 
-## Running the Project (will fill in as phases progress)
+## Running the Project
 
 ```bash
-# Agent (Python)
+# Agent (Python) — 120 tests as of Phase 5
 cd apps/agent
 pip install -r requirements.txt
 pytest
 
-# Web (Next.js)
+# Real-network verification scripts (require your own API keys/tokens —
+# see .env.example and each script's own docstring for setup)
+cd ..
+python scripts/verify_doctavian_template.py docs/templates/tegata-warrant.docx
+python scripts/verify_foxit_envelope.py your-real-email@example.com
+python scripts/verify_nlu_frontdoor.py "your test request text"
+python scripts/verify_auto_expire_demo.py
+
+# Web (Next.js) — Phase 6, not yet built
 cd apps/web
 pnpm install
 pnpm dev
 
-# E2E
+# E2E — Phase 6
 pnpm playwright test
 ```
 
