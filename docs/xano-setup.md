@@ -27,7 +27,8 @@ no-code visual builder automatically in sync with a code file.
 | Status transition guard | `state_machine.py` | `test_state_machine.py` |
 | `POST /audit-log/append` | `audit_log.py` | `test_audit_log.py` |
 | Scheduled auto-expire sweep | `auto_expire.py` + `ttl.py` | `test_auto_expire.py`, `test_ttl.py` |
-| Signature verification + anti-replay | *(none yet — see §9)* | *(none yet — see §9)* |
+| `POST /verify-signature` (see §9a) | `warrant_verification.py` | `test_warrant_verification.py` |
+| `POST /warrants` (see §9b) | *(persistence only — reuses `score`/`derive_approval_requirement`)* | `test_risk_engine.py`, `test_approval_rules.py` |
 
 ---
 
@@ -268,24 +269,96 @@ not just reference logic.
 
 ## 9. What's still open
 
-- **Signature verification + anti-replay (Phase 3 Xano side) — not yet
-  designed, not just "not yet built."** Phase 3 built and verified the
-  Foxit client (`foxit_client.py`) end-to-end for creating and signing
-  an envelope, but the Xano-side endpoint that receives the signed
-  document back, verifies the signature, checks the warrant's `used`
-  flag is still `false` (rejecting replay if `true`), and only then
-  flips `used = true` and transitions `signed -> active` was **never
-  written as a Python reference module** — there is no
-  `warrant_verification.py` and no matching pytest file to check this
-  against, unlike every other endpoint in this guide. Before building
-  this in Xano, write and test the Python reference first (same
-  pattern as `state_machine.py`/`audit_log.py`), then come back and add
-  a §9a section here mirroring it. Building it directly in Xano without
-  that reference risks silently reintroducing the exact replay bug this
-  project's core security claim depends on catching.
+- **RESOLVED 2026-08-28 — reference module written.**
+  `apps/agent/src/tegata_agent/warrant_verification.py` +
+  `test_warrant_verification.py` (17 tests, all passing) now exist,
+  mirroring the `state_machine.py`/`audit_log.py` pattern. See §9a below
+  for the Xano Function Stack spec to build against it. The Python
+  reference is the source of truth; build Xano to match it, not the
+  other way around.
+- **NEW gap, found while starting Phase 6:** there is also no
+  `POST /warrants` (create) endpoint in the 5 endpoints built so far —
+  `POST /score` and `POST /derive-approval-requirement` compute values
+  but nothing persists a `warrants` row and hands back a `warrant_id`.
+  Without this, a UI (or any client) cannot actually start a real
+  request against Xano end-to-end, only compute the two intermediate
+  values. See §9b below for the spec. This has no separate Python
+  reference module of its own — it's pure persistence (call `score`,
+  call `derive_approval_requirement`, insert one `warrants` row with
+  status `pending_approval`, return it), no new business logic to test
+  beyond what `test_risk_engine.py`/`test_approval_rules.py` already
+  cover.
 - Live demonstration of hash-chain tamper detection against a real
   Xano table (Phase 7 "Stretch C" — deliberately editing a stored row
   via the Xano dashboard and showing the equivalent of
   `audit_log.verify_chain()` catch it). The hashing/chaining logic
   itself is implemented as of Phase 5 (§6 above, `audit_log.py`);
   Stretch C is the demo-video moment built on top of it, not new logic.
+
+### 9a. `POST /verify-signature` (new — mirrors `warrant_verification.py`)
+
+Test against: `test_warrant_verification.py`.
+
+Input: `warrant_id`, plus whatever Foxit's "get envelope details" call
+returns for that warrant's envelope (`envelope_status`,
+`returned_document_hash` — hash the downloaded signed file yourself,
+Foxit doesn't hand you a hash — and `signer_email`).
+
+Function Stack steps, in this exact order (order matters — see the
+module docstring on why replay is checked first):
+1. Get Record: `warrants` where `warrant_id` = input. If not found, 404.
+2. **Precondition:** `warrants.used == false`. If not, return the same
+   error shape as `ReplayRejectedError` (e.g. `403` with
+   `{"error": "replay_rejected", "warrant_id": ...}`) and do **not**
+   touch the record.
+3. **Precondition:** `envelope_status == "EXECUTED"`. If not, `409` /
+   `EnvelopeNotExecutedError`-shaped response.
+4. **Precondition:** `returned_document_hash == warrants.document_hash`
+   (a `document_hash` field, computed when the document was first sent
+   to Foxit — add this column to `warrants` if it doesn't exist yet)
+   AND `signer_email` (case-insensitive) matches the expected approver
+   for this warrant. If either fails, `409` /
+   `SignatureMismatchError`-shaped response.
+5. Only if 2-4 all pass: call `validate_transition` (existing function)
+   with `current=warrants.status`, `target="active"`. If it throws,
+   propagate as-is (same behavior as every other endpoint that calls
+   this function).
+6. Update the `warrants` row: `used = true`, `status = "active"`.
+7. Call `append_audit_log` (existing shared function) with
+   `event = "signed_and_activated"`, `actor = signer_email`.
+8. Return the updated warrant.
+
+Restrict this endpoint like `POST /audit-log/append` — it mutates
+state, so `security_admin` or a dedicated system/service role, not
+`requester`.
+
+### 9b. `POST /warrants` (new — persistence only, no new logic)
+
+Test against: `test_risk_engine.py` + `test_approval_rules.py` (the
+values it persists must match those, nothing new to verify).
+
+Input: an `AccessRequest`-shaped body (`resource`, `reason`,
+`requested_duration_minutes`, `ticket_ref?`, `requested_by?`).
+
+Function Stack steps:
+1. Validate `resource` exists in `resource_tiers` (reject with `400`
+   otherwise — this is the "never trust free-text resource names
+   directly" rule from `AccessRequest`'s docstring in
+   `packages/schema/python/models.py`).
+2. Insert a `requests` row.
+3. Call `score` (existing function) with this request.
+4. Call `derive_approval_requirement` (existing function) with the
+   resulting tier + requested duration.
+5. Generate a `warrant_id` (UUID), insert a `warrants` row with
+   `status = "pending_approval"`, `used = false`, and the two results
+   from steps 3-4, plus a `document_hash` placeholder (filled in for
+   real once Doctavian generates the actual document — out of scope for
+   this endpoint, see Phase 2).
+6. Call `append_audit_log` with `event = "requested"`, then again with
+   `event = "scored"` (two entries — matches the two-step
+   `requested -> scored -> pending_approval` path in
+   `state_machine.VALID_TRANSITIONS`; don't skip straight to
+   `pending_approval` in one entry, the audit trail should show both
+   transitions actually happening).
+7. Return the created warrant (`warrant_id` is the important part —
+   nothing downstream can reference this request without it).
