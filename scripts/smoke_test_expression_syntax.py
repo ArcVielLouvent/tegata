@@ -1,8 +1,17 @@
 #!/usr/bin/env python3
 """
-SMOKE TEST — REOPENED 2026-08-26. Do not treat this as superseded.
+SMOKE TEST — RESOLVED 2026-08-26. Kept as a historical record only.
 
-Timeline:
+Confirmed via this script's own real API run: Doctavian DOES substitute
+plain-text "{!fieldname}" placeholders from the uploaded data file. This
+is now the basis for template_builder.py's implementation (see that
+module's docstring for the full, confirmed syntax reference, including
+Kanwal's direct confirmation and the mdoc:paragraph mechanism for
+conditional content). No need to run this again for new work — it's
+preserved here purely as the historical record of how the hypothesis
+was tested and confirmed.
+
+Original timeline (kept for context):
 - 2026-08-24: hypothesized Doctavian's template engine reads PLAIN TEXT
   placeholders in its own expression syntax (e.g. "{!resource}", seen in
   their own "fieldExpression"/"variables" examples like "{!$now()}"),
