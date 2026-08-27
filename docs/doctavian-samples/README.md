@@ -1,56 +1,86 @@
-# Doctavian sample data files
+# Doctavian reference materials
 
-Both files here were provided by Kanwal Roshi (Doctavian/Maven Engineering
-Manager) on 2026-08-25, in her reply that identified the real root cause
-of the `TEMPLATE_READ_FAILED` error that blocked Phase 2 for several
-sessions. See `PROJECT_STATUS.md`'s Phase 2 section for the full timeline.
+Everything in this folder was provided by Kanwal Roshi (Doctavian/Maven
+Engineering Manager) across two rounds of investigation into
+`TEMPLATE_READ_FAILED` and the follow-up conditional-syntax question.
+See `PROJECT_STATUS.md`'s Phase 2 section for the full timeline —
+this README just summarizes the final, confirmed answer.
 
-## The actual bug
+## The final answer (2026-08-26)
 
-Every `data.upload` call this project made before 2026-08-25 uploaded a
-**bare** `{}` as the data file's JSON content. Doctavian's document
-generation engine requires the uploaded data file's JSON to wrap its
-contents in a top-level `"data"` key — even if that key's value is
-itself empty:
+Doctavian's document generation engine does **not** evaluate native
+Word MERGEFIELD/IF field codes at all — confirmed conclusively both by
+direct API testing (real documents generated with real data still came
+back with every field blank and IF logic unevaluated) and by Kanwal
+directly ("that's expected behavior, not a bug"). Instead, Doctavian
+reads its own plain-text templating language straight out of ordinary
+paragraph text:
 
-```json
-{ "data": {} }
-```
+- **Merge fields:** `{!fieldname}` — substituted from the uploaded data
+  file's top-level `"data"` object.
+- **Expressions** (anything beyond a bare field — comparisons,
+  functions, ternaries): `{!$expression}`, built on
+  [Jexl](https://github.com/TomFrost/Jexl). No `IF()`/`IIF()` function
+  exists — use Jexl's native ternary: `{!$x == "2" ? "A" : "B"}`.
+- **Conditional blocks** (Tegata's actual use case — swapping an entire
+  sentence, not just a word): the `mdoc:paragraph` element, with a
+  `hidden` attribute holding an expression. Two `mdoc:paragraph` blocks,
+  each hidden under the opposite condition, implement an if/else. See
+  `template_builder.py`'s module docstring for Tegata's exact
+  implementation of this.
 
-A bare `{}` (no wrapper key) is what actually caused
-`TEMPLATE_READ_FAILED` — Doctavian's own team has acknowledged the error
-message is misleading, since the failure has nothing to do with the
-template file itself.
+This is fully implemented in `apps/agent/src/tegata_agent/template_builder.py`
+as of 2026-08-26 (a complete rewrite from the earlier native-Word-field
+version).
 
-## The files
+## Files in this folder
 
-- **`data-simple.json`** — the minimal fix: just the required `"data"`
-  wrapper key with nothing inside it. This is what
-  `scripts/verify_doctavian_template.py` now uploads (see that script
-  for the corrected `json.dump({"data": {}}, tmp)` call).
-- **`mission-1-data.json`** — a more elaborate example straight from
-  Doctavian's own "Mission 1" quickstart materials, showing a real
-  nested data structure (`Customer` → `LineItems`) under the same
-  `"data"` wrapper key. Kept here for future reference in case Tegata
-  ever needs to pass richer structured data into a template (Tegata's
-  current templates only need flat `TemplateVariable` merge fields, so
-  this shape isn't required yet — but it documents what's possible if a
-  future template needs nested/repeating data, e.g. a Phase 7 "dual-
-  audience document" stretch feature).
+- **`data-simple.json`** — Kanwal's minimal fix for `TEMPLATE_READ_FAILED`:
+  just the required `"data"` wrapper key with nothing inside it. A bare
+  `{}` (no wrapper key) is what actually caused the error — Doctavian's
+  team has acknowledged the error message is misleading, since the
+  failure has nothing to do with the template file itself.
+- **`mission-1-data.json`** — a real, richer example data payload from
+  Doctavian's own "Mission 1" quickstart materials (nested
+  `Customer` → `LineItems` structure), for reference if Tegata ever
+  needs nested/repeating data (e.g. a Phase 7 "dual-audience document"
+  stretch feature).
+- **`mission-1-agreement.docx`** — the actual real template Doctavian's
+  Mission 1 quickstart uses, showing the confirmed syntax in a working
+  example: plain-text `{!Customer.Name}` merge fields, an
+  `mdoc:repeater` for the line-items table, and an `mdoc:paragraph`
+  block (`hidden="{!$toDecimal(sum(Customer.LineItems, "LineAmount")) < 10000}"`)
+  implementing a volume-discount clause — the same pattern Tegata's
+  approval clause now uses. Notably, the **closing tag repeats the
+  `name` attribute** (`</mdoc:paragraph name="exc10000">`, not just
+  `</mdoc:paragraph>`) — not standard XML, but Doctavian's own
+  convention, matched exactly in `template_builder.py`.
+- **`Elements_Reference.pdf`** — official docs for every templating
+  element (`mdoc:paragraph`, `mdoc:repeater`, `mdoc:table`,
+  `mdoc:image`, `mdoc:text`, `mdoc:link`, and more), their parameters,
+  and per-format support (DOCX/XLSX/PPTX/Google Docs/Sheets/Slides).
+- **`Expressions_Reference.pdf`** — official docs for the full Jexl-based
+  expression language: array/string/number/date functions, comparison
+  operators, and the native ternary. This is the page that was
+  previously JS-rendered and unreadable from Claude's sandbox; Kanwal
+  sent a PDF export instead.
 
-## Status as of 2026-08-25
+## Investigation history (for context)
 
-Fix applied to `scripts/verify_doctavian_template.py` (now uploads
-`{"data": {}}` instead of `{}`) — **not yet re-run against the real
-Doctavian API** (Claude's own sandbox cannot reach
-`demo.api.doctavian.com`; this must be verified by running the script
-locally with a fresh `DOCTAVIAN_ACCESS_TOKEN`). Once confirmed working,
-update `PROJECT_STATUS.md`'s Phase 2 section to mark this fully
-resolved and remove the "unverified assumption" caveat.
-
-Also worth noting: Kanwal reproduced the failure using our **unmodified**
-real template (`template_builder.py`'s native Word `IF` merge field,
-untouched) and only changed the data file — meaning the native-Word-
-field approach was correct all along. `scripts/smoke_test_expression_syntax.py`'s
-plain-text-placeholder hypothesis is now superseded and should not be
-acted on.
+1. **`TEMPLATE_READ_FAILED`** — root cause: the uploaded data file's
+   JSON needs a top-level `"data"` wrapper key, even if empty
+   (`{"data": {}}`, not a bare `{}`). Fixed 2026-08-25.
+2. **Native Word field codes silently not evaluated** — even with a
+   correctly-wrapped, fully-populated data file, native Word
+   MERGEFIELD/IF field codes never rendered real values. Confirmed via
+   two real API test runs (2026-08-26) before Kanwal's reply arrived.
+3. **7 candidate conditional syntaxes tried and failed** (2026-08-26,
+   `scripts/smoke_test_conditional_syntax.py`) before escalating — see
+   that script's docstring for the specific candidates and why they
+   were informative failures (they proved `{!...}` genuinely attempts
+   expression evaluation, just not with the function names/operators
+   guessed).
+4. **Kanwal's reply** confirmed the plain-text `{!fieldname}` mechanism,
+   explained native Word fields are correctly never processed, and gave
+   the actual conditional syntax (Jexl ternary + `mdoc:paragraph` for
+   block-level conditionals), plus the reference files above.
