@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """
-Exploratory script — tests several CANDIDATE syntaxes for conditional /
-branching logic inside Doctavian's plain-text expression templating
-(confirmed 2026-08-26 via smoke_test_expression_syntax.py: Doctavian
-reads plain-text "{!fieldname}" placeholders from the uploaded data
-file's flat keys, and does NOT evaluate native Word MERGEFIELD/IF field
-codes at all, regardless of whether real or empty data is supplied).
+Exploratory script — RESOLVED 2026-08-26, kept as a historical record.
+
+None of the 7 candidate syntaxes tested here (across 2 rounds) turned
+out to be correct. Kanwal (Doctavian) provided the actual answer
+directly: there is no IF()/IIF() function; use Jexl's native ternary
+operator for an inline value ({!$x == "2" ? "A" : "B"}), or — for
+Tegata's actual use case of swapping entire blocks of content — the
+mdoc:paragraph element, with a "hidden" attribute expression to
+show/hide each block. See template_builder.py's module docstring for
+the confirmed, implemented syntax. No need to run this script again for
+new work; it's preserved purely as the record of what was tried before
+the real answer arrived.
 
 What's still unknown: the syntax for a CONDITIONAL expression (Tegata's
 actual differentiator — the approval clause must read differently for
