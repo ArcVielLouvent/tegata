@@ -342,8 +342,46 @@ Phase 8 remains documentation + submission (README, benchmarks, testing docs, de
 
 ## Notes for the Next Session
 **Immediate priorities, in order:**
-1. **Run `./scripts/verify_phase6_frontend.sh`** locally — installs Playwright's Chromium and actually runs both e2e specs (mock mode) against a real browser.
+1. **`./scripts/verify_phase6_frontend.sh` cannot run on Armand's machine** (AMD A4-9152/Radeon R3 — not enough headroom for Playwright's Chromium + a Next.js dev server at once) — CI (`e2e-mock-mode` in `phase-6.yml`) is the actual pass/fail signal for this phase's e2e tests, not a local run. Push to `phase/6-*` or open a PR and read the Actions tab.
 2. **Manually walk through `--mode=xano` in a real browser**: register → (manually set role=approver on a second test account in Xano's Database tab) → submit a request as the requester account → sign as the approver account → confirm activation → attempt to sign again → confirm the replay rejection banner appears with the right wording. This is the first time this flow will have actually run against live Xano.
 3. Re-verify the already-flagged Xano discrepancies from the earlier verification pass (`resource_sensitivity` for `db_payment_prod` — should be fixed now that `seed_resource_tiers` ran, confirm it actually shows 6 rows — the `internal_wiki` medium-vs-low scoring case, audit-log hash mismatches from contaminated test data, `auto_expire_sweep` needing manual trigger).
 4. Once 1-3 are solid, move to stage 2 of the restructured plan above (wire NLU front-door / Doctavian / Foxit into this same UI, close out Phase 1-5 loose ends) before starting Phase 7.
 5. **Merge the branch chain to `main`** — deferred since Phase 3, keeps growing. Do this once the above is stable, not before.
+
+## CI fix: e2e-mock-mode was flaky, not broken (2026-08-28)
+
+After pushing the auth-wiring commit, `e2e-mock-mode` in `phase-6.yml`
+failed on GitHub Actions: `warrant-card` not found, status stuck at
+`pending_approval`, `signed_and_activated` count 0 in the replay test.
+This was **not** a mock-backend logic bug and **did not** need any
+Doctavian/Foxit/Xano secrets in GitHub Secrets — the job only ever
+talks to this app's own `/api/mock/*` routes, never the network.
+
+Root cause: `tests/e2e/playwright.config.ts`'s `webServer` ran
+`npm run dev`, and Next.js dev mode compiles each route on first
+request. On a cold GitHub Actions runner, first-hit compile time for
+`/approver`, `/audit/[id]`, and the sign API route raced against
+Playwright's 5s assertion timeout — worse after this session's auth
+wiring added more first-load surface (`AuthContext`, `/login`) to
+compile.
+
+Fix (`tests/e2e/playwright.config.ts`, commit after `df2d184`):
+`webServer.command` now runs `npm run build && npm run start`
+(production, all routes precompiled) instead of `npm run dev`.
+Confirmed via a real `next start` + curl smoke test in Claude's
+sandbox: reset → create (`w_0001`, low risk, 1 approver) → sign →
+`status: active` → replay sign → `403 replay_rejected` → audit trail
+shows exactly one `signed_and_activated` entry, `chain_intact: true`.
+First-hit route latency in production mode: <160ms (vs. multi-second
+dev-mode compiles). Production build takes ~32s locally in the
+sandbox, well inside the new 180s `webServer.timeout`. Also added
+`expect.timeout: 8000` and `retries: 1` (CI only) as variance
+headroom — not a substitute for the actual fix.
+`ruff check` + full `pytest` regression (137/137) re-run clean;
+`apps/agent` untouched by this fix.
+
+**Still the actual bar for this specific fix:** a real browser run
+via GitHub Actions on `phase/6-frontend-demo` or `main` — the sandbox
+curl smoke test proves the mock backend and build are sound, but
+only CI can run actual Chromium against actual Playwright assertions
+here.
