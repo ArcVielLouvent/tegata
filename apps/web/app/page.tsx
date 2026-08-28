@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { createWarrant, apiMode, ApiError } from "../lib/apiClient";
+import { useAuth } from "../lib/AuthContext";
 import type { MockWarrant } from "../lib/mockStore";
 
 const RESOURCES = [
@@ -15,6 +16,7 @@ const RESOURCES = [
 ];
 
 export default function RequesterPage() {
+  const { user, token, loading: authLoading } = useAuth();
   const [resource, setResource] = useState(RESOURCES[0]);
   const [reason, setReason] = useState("");
   const [duration, setDuration] = useState(60);
@@ -22,6 +24,21 @@ export default function RequesterPage() {
   const [warrant, setWarrant] = useState<MockWarrant | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const needsLogin = apiMode() === "xano" && !authLoading && !token;
+
+  if (needsLogin) {
+    return (
+      <>
+        <h1>Request privileged access</h1>
+        <p className="subtitle">
+          Tegata Core requires a logged-in user (xano mode). <Link href="/login">Log in or register</Link> first.
+        </p>
+      </>
+    );
+  }
+
+  const effectiveRequestedBy = apiMode() === "xano" ? user?.email || requestedBy : requestedBy;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -32,7 +49,7 @@ export default function RequesterPage() {
         resource,
         reason,
         requested_duration_minutes: Number(duration),
-        requested_by: requestedBy || undefined,
+        requested_by: effectiveRequestedBy || undefined,
       });
       setWarrant(warrant);
     } catch (err) {
@@ -82,8 +99,20 @@ export default function RequesterPage() {
           data-testid="duration-input"
         />
 
-        <label htmlFor="requestedBy">Your email</label>
-        <input id="requestedBy" type="email" value={requestedBy} onChange={(e) => setRequestedBy(e.target.value)} data-testid="requested-by-input" />
+        {apiMode() === "xano" ? (
+          <>
+            <label>Your email</label>
+            <p className="muted" style={{ marginTop: 0 }}>
+              {effectiveRequestedBy} (from your logged-in session — Xano ignores any value sent here and uses
+              $authenticated_user.email instead, see docs/xano-setup.md §9a)
+            </p>
+          </>
+        ) : (
+          <>
+            <label htmlFor="requestedBy">Your email</label>
+            <input id="requestedBy" type="email" value={requestedBy} onChange={(e) => setRequestedBy(e.target.value)} data-testid="requested-by-input" />
+          </>
+        )}
 
         <button type="submit" disabled={submitting} data-testid="submit-request">
           {submitting ? "Scoring…" : "Submit request"}

@@ -42,6 +42,16 @@ import type { MockWarrant } from "./mockStore";
 const MODE = (process.env.NEXT_PUBLIC_API_MODE || "mock") as "mock" | "xano";
 const XANO_BASE = process.env.NEXT_PUBLIC_XANO_API_BASE_URL || "";
 
+// Set by AuthContext once a user logs in. Module-level rather than passed
+// as a parameter to every call, since every page already goes through
+// this one client and shouldn't need to thread a token through on every
+// call site. Irrelevant in mock mode — the /api/mock/* routes have no
+// auth of their own.
+let authToken: string | null = null;
+export function setAuthToken(token: string | null): void {
+  authToken = token;
+}
+
 const ERROR_MESSAGES: Record<string, (body: any) => string> = {
   replay_rejected: (b) => `Warrant '${b?.warrant_id ?? "?"}' has already been used — replay rejected.`,
   envelope_not_executed: (b) => `Envelope is not yet fully executed (status=${b?.envelope_status ?? "unknown"}).`,
@@ -84,7 +94,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   const res = await fetch(`${base}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...(MODE === "xano" && authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      ...(init?.headers || {}),
+    },
     cache: "no-store",
   });
   const body = await res.json().catch(() => ({}));

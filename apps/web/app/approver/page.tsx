@@ -3,14 +3,19 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { listWarrants, signWarrant, apiMode, ApiError } from "../../lib/apiClient";
+import { useAuth } from "../../lib/AuthContext";
 import type { MockWarrant } from "../../lib/mockStore";
 
 export default function ApproverPage() {
+  const { user, token, loading: authLoading } = useAuth();
   const [warrants, setWarrants] = useState<MockWarrant[]>([]);
   const [loading, setLoading] = useState(true);
   const [signerEmail, setSignerEmail] = useState("approver@example.com");
   const [messages, setMessages] = useState<Record<string, { kind: "success" | "error"; text: string }>>({});
   const [busy, setBusy] = useState<string | null>(null);
+
+  const needsLogin = apiMode() === "xano" && !authLoading && !token;
+  const effectiveSignerEmail = apiMode() === "xano" ? user?.email || signerEmail : signerEmail;
 
   async function refresh() {
     setLoading(true);
@@ -29,14 +34,14 @@ export default function ApproverPage() {
   async function handleSign(warrantId: string) {
     setBusy(warrantId);
     try {
-      const { warrant } = await signWarrant(warrantId, signerEmail);
+      const { warrant } = await signWarrant(warrantId, effectiveSignerEmail);
       setMessages((m) => ({
         ...m,
         [warrantId]: {
           kind: "success",
           text:
             warrant.status === "active"
-              ? `Signed and activated by ${signerEmail}.`
+              ? `Signed and activated by ${effectiveSignerEmail}.`
               : `Signature recorded (${warrant.signatures.length}/${warrant.approval_requirement.required_approver_count} collected) — waiting on more approvers.`,
         },
       }));
@@ -49,6 +54,19 @@ export default function ApproverPage() {
     }
   }
 
+  if (needsLogin) {
+    return (
+      <>
+        <h1>Approve access requests</h1>
+        <p className="subtitle">
+          Tegata Core requires a logged-in user (xano mode). <Link href="/login">Log in or register</Link> first —
+          note only accounts with role <span className="mono">approver</span> or{" "}
+          <span className="mono">security_admin</span> (set manually in the Xano dashboard) can actually sign.
+        </p>
+      </>
+    );
+  }
+
   return (
     <>
       <h1>Approve access requests</h1>
@@ -58,8 +76,19 @@ export default function ApproverPage() {
         again demonstrates anti-replay rejection.
       </p>
 
-      <label htmlFor="signerEmail">Signing as</label>
-      <input id="signerEmail" type="email" value={signerEmail} onChange={(e) => setSignerEmail(e.target.value)} data-testid="signer-email-input" />
+      {apiMode() === "xano" ? (
+        <>
+          <label>Signing as</label>
+          <p className="muted" style={{ marginTop: 0 }}>
+            {effectiveSignerEmail} (from your logged-in session)
+          </p>
+        </>
+      ) : (
+        <>
+          <label htmlFor="signerEmail">Signing as</label>
+          <input id="signerEmail" type="email" value={signerEmail} onChange={(e) => setSignerEmail(e.target.value)} data-testid="signer-email-input" />
+        </>
+      )}
 
       <div className="row" style={{ marginTop: "1rem" }}>
         <button type="button" className="secondary" onClick={refresh} disabled={loading} data-testid="refresh-warrants">

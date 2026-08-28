@@ -393,6 +393,34 @@ idempotent (checks each resource name before inserting) and seeded with
 the exact 6 rows `risk_engine.py`'s `RESOURCE_SENSITIVITY` table
 expects. Publish + run it once if `resource_tiers` still shows 0 rows.
 
+### 9d. Authentication group — CONFIRMED (2026-08-28)
+
+Tegata Core is a **Private** API group (unlike Authentication and Event
+Logs, which are Public) — every request needs a bearer token. This
+comes from a separate "Authentication" API group with **its own base
+URL** (find both base URLs under Xano's "Connect this backend" -> "API
+URLs" panel, not the Swagger Docs panel — Swagger is documentation for
+humans, not a URL `apiClient.ts` calls).
+
+Confirmed against the real Function Stacks:
+- `POST /auth/signup` — inputs `name`, `email`, `password`. Steps: check
+  if a user with that email exists, precondition the email is unique,
+  create the user record, create an auth token, log a signup event.
+  Returns `{authToken, ...}`.
+- `POST /auth/login` — inputs `email`, `password`. Returns `{authToken}`.
+- `GET /auth/me` — Private, needs `Authorization: Bearer <token>`.
+  Returns the user record for that token.
+
+**Important gap, not a bug:** there is no `role` input on `/auth/signup`
+— every new user gets whatever the `user` table's default is
+(confirmed: `requester`). There is **no self-service way to become an
+approver or security_admin** — Armand assigns those manually by editing
+the user's row in Xano's Database tab. This is an intentional
+hackathon-scope simplification; a production version would need an
+invite/assignment flow. `apps/web`'s auth wiring (`lib/auth.ts`,
+`lib/AuthContext.tsx`) matches this contract exactly — it does not
+attempt to pass or request a role at signup.
+
 ---
 
 *Superseded assumption, kept for the record only — do not build this:*

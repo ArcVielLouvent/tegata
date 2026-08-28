@@ -317,15 +317,33 @@ Phases 0-5 have tested reference logic in place, plus Phase 3/4's core mechanism
 
 `.github/workflows/phase-6.yml` — three jobs: agent regression (pytest+ruff), frontend typecheck+build, and Playwright e2e in mock mode (GitHub Actions runners aren't network-restricted the way Claude's sandbox is, so this job should actually work in CI even though it couldn't run locally in this session).
 
-## Not Yet Done / Known Gaps (updated)
-- **Run `./scripts/verify_phase6_frontend.sh` for real, on your machine** — this is the one item standing between "written and typechecked" and "actually verified." Nothing about the mock-mode logic is expected to fail (it was smoke-tested manually via curl against every code path including the replay rejection), but an actual Playwright browser run is the real bar, not a curl transcript.
-- `POST /verify-signature` (§9a) and `POST /warrants` (§9b) — specced, not built in Xano yet. Real-Xano-mode e2e (`--mode=xano`) is expected to 404 until these exist.
-- Everything carried over from Phase 5's gaps (auto-expire scheduled task, `/audit-log/append` Function Stack, Doctavian re-verification, `phase-sync.sh` never run against real GitHub, nothing merged to `main` yet) is still exactly as open as it was — Phase 6 didn't touch any of it.
+**Auth wiring added (2026-08-28), after discovering Tegata Core is Private:**
+- `lib/auth.ts` — client for the separate "Authentication" API group (its own base URL, confirmed via Xano's "API URLs" panel — NOT the Swagger Docs panel, which is just documentation). `POST /auth/signup` and `POST /auth/login` confirmed to return `{authToken}`; `GET /auth/me` confirmed Private, needs the bearer token.
+- `lib/AuthContext.tsx` + `lib/AuthStatus.tsx` — React context wrapping the whole app (in `app/layout.tsx`), persists the token to `localStorage` (fine here — this is a real delivered app, not an Artifact, which has a separate stricter no-localStorage rule), hydrates on load, exposes `login()`/`register()`/`logout()`.
+- `app/login/page.tsx` — register (name/email/password) and login forms. In mock mode this page just explains login isn't needed there, rather than pretending to work.
+- Requester and Approver pages now guard on `needsLogin` in xano mode and pull the signed-in user's email instead of a free-text field (Xano ignores whatever `requested_by`/`signer_email` you send anyway and uses `$authenticated_user.email` server-side, per §9a/§9d).
+- **Confirmed gap, not a bug:** `/auth/signup` has no `role` input — every new account defaults to `requester`. There is no self-service way to become `approver`/`security_admin`; that's set manually by editing the user's row in Xano's Database tab. `docs/xano-setup.md` §9d documents this.
+- Mock mode is completely unaffected by any of this — smoke-tested again after the auth changes (create → sign → activate → replay-rejected all still pass via curl against a real `next start` server).
+
+## Not Yet Done / Known Gaps (updated 2026-08-28)
+- **Run `./scripts/verify_phase6_frontend.sh` for real, on your machine** — still the main open item. Nothing about mock-mode logic is expected to fail (smoke-tested via curl repeatedly, including after the auth changes), but an actual Playwright browser run is the real bar.
+- **`--mode=xano` has never actually been run against the live workspace yet** — the contract is confirmed correct on paper (§9a/§9b/§9d in `docs/xano-setup.md`, verified by reading the real Function Stacks via Xano's AI agent), and `apiClient.ts`/`auth.ts` are written to match it exactly, but nobody has clicked through the actual login → request → sign flow in a browser against real Xano yet. Do this before assuming it works.
+- xano mode's 2-approver flow is still only a manual/smoke-test shortcut (see `apiClient.ts`'s `signWarrant()` xano-mode comment) — it doesn't call a real Foxit envelope, so "1 of 2 signed" progress has no real equivalent yet.
+- Everything carried over from Phase 5's gaps (auto-expire scheduled task, `/audit-log/append` Function Stack, Doctavian re-verification, `phase-sync.sh` never run against real GitHub, nothing merged to `main` yet) is still exactly as open as it was.
 - `apps/web`'s mock backend is intentionally in-memory and resets on server restart — fine for a demo, not persistence.
+
+## Restructured plan going forward (Armand's call, 2026-08-28 — recorded here so it isn't lost)
+Phase 6 is now understood as three sub-stages, not one block:
+1. **Test Xano** (current stage) — confirm each Xano contract piece by piece against real endpoints, fix `apiClient.ts`/`auth.ts` to match. In progress; see immediate priorities below.
+2. **Integrate everything from Phases 1-5** — wire Phase 4's NLU front-door, Phase 2's Doctavian document generation, and Phase 3's real Foxit signing into this same `apps/web` UI (today it bypasses all three: the Requester page is a manual form, not NLU-driven, and Approver's "Sign" doesn't touch a real Foxit envelope). Also close out anything still open from Phases 1-5 specifically (see the gaps list above and each phase's own "Not Yet Done" section higher in this file).
+3. **Phase 7** — build + test the stretch features (ROADMAP.md's actual list: OCR self-consistency check, dual-audience document generation, progressive disclosure via redaction, synthetic canary warrant — hash-chained audit log is already done, Phase 5), and connect them into the same Phase 6 UI rather than treating them as separate demos.
+
+Phase 8 remains documentation + submission (README, benchmarks, testing docs, demo video, Devpost) — there is no separate "combine everything" phase beyond what 2-3 above already are.
 
 ## Notes for the Next Session
 **Immediate priorities, in order:**
-1. **Run `./scripts/verify_phase6_frontend.sh`** locally (not in a network-restricted container) — installs Playwright's Chromium and actually runs both e2e specs against a real browser. This is the real confirmation Phase 6 is genuinely done, not just typechecked.
-2. **Build the two missing Xano endpoints** (§9a `POST /verify-signature`, §9b `POST /warrants` — specs are in `docs/xano-setup.md`), then run `./scripts/verify_phase6_frontend.sh --mode=xano` with `NEXT_PUBLIC_XANO_API_BASE_URL` set, alongside re-verifying the already-flagged Xano discrepancies (`auth.role` precondition, `resource_sensitivity` for `db_payment_prod`, the `internal_wiki` medium-vs-low scoring case, audit-log hash mismatches from contaminated test data, `auto_expire_sweep` needing manual trigger).
-3. **Merge the branch chain to `main`** — this has been deferred since Phase 3 and the chain keeps growing (`phase/6-frontend-demo` now contains everything through Phase 5 plus this). Do this once 1-2 above are confirmed.
-4. Phase 7 (stretch features) and Phase 8 (submission materials) remain after that, with the September 3 deadline getting closer — worth reassessing scope honestly at that point given depth-over-breadth.
+1. **Run `./scripts/verify_phase6_frontend.sh`** locally — installs Playwright's Chromium and actually runs both e2e specs (mock mode) against a real browser.
+2. **Manually walk through `--mode=xano` in a real browser**: register → (manually set role=approver on a second test account in Xano's Database tab) → submit a request as the requester account → sign as the approver account → confirm activation → attempt to sign again → confirm the replay rejection banner appears with the right wording. This is the first time this flow will have actually run against live Xano.
+3. Re-verify the already-flagged Xano discrepancies from the earlier verification pass (`resource_sensitivity` for `db_payment_prod` — should be fixed now that `seed_resource_tiers` ran, confirm it actually shows 6 rows — the `internal_wiki` medium-vs-low scoring case, audit-log hash mismatches from contaminated test data, `auto_expire_sweep` needing manual trigger).
+4. Once 1-3 are solid, move to stage 2 of the restructured plan above (wire NLU front-door / Doctavian / Foxit into this same UI, close out Phase 1-5 loose ends) before starting Phase 7.
+5. **Merge the branch chain to `main`** — deferred since Phase 3, keeps growing. Do this once the above is stable, not before.
