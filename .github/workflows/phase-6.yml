@@ -1,0 +1,74 @@
+name: Phase 6 — Frontend Demo
+
+on:
+  push:
+    branches:
+      - "phase/6-*"
+      - main
+    paths:
+      - "apps/web/**"
+      - "apps/agent/**"
+      - "packages/schema/**"
+      - "tests/e2e/**"
+      - "docs/xano-setup.md"
+      - ".github/workflows/phase-6.yml"
+  pull_request:
+    branches: [main]
+
+jobs:
+  agent-regression:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Ruff lint
+        run: ruff check src tests
+      - name: Full regression (all phases, not just warrant_verification)
+        run: pytest -v
+
+  frontend-typecheck-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies (root workspace)
+        run: npm install --no-audit --no-fund
+      - name: Typecheck apps/web
+        run: cd apps/web && npx tsc --noEmit
+      - name: Typecheck tests/e2e
+        run: cd tests/e2e && npx tsc --noEmit
+      - name: Production build
+        run: cd apps/web && npx next build
+
+  e2e-mock-mode:
+    runs-on: ubuntu-latest
+    needs: frontend-typecheck-and-build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies (root workspace)
+        run: npm install --no-audit --no-fund
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run e2e tests (happy path + replay rejection, mock mode)
+        run: npx playwright test --config=tests/e2e/playwright.config.ts
+        env:
+          NEXT_PUBLIC_API_MODE: mock
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

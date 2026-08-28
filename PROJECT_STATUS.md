@@ -16,7 +16,7 @@ See `docs/tegata-concept.md` for the full spec. In short: a time-boxed access au
 - [x] Phase 3 — Signature & Verification (Foxit) — client + tests done, real API round-trip (create → sign → verify → download) not yet run
 - [x] Phase 4 — AI Front-Door (Two-Pass NLU + 6-model fallback) — logic fully tested, real API calls not yet run
 - [x] Phase 5 — Auto-Expire & Audit Trail — reference implementation + tests done; real Xano scheduled task not yet built (manual step, see `docs/xano-setup.md` sections 7-8)
-- [ ] Phase 6 — Frontend Demo
+- [~] Phase 6 — Frontend Demo — in progress, see detailed status below (backend logic + UI + e2e tests written and passing everything runnable in Claude's sandbox; Playwright's actual browser run and real-Xano wiring still need to happen on your machine)
 - [ ] Phase 7 — Stretch Features
 - [ ] Phase 8 — Documentation & Submission
 
@@ -293,3 +293,39 @@ Phases 0-5 have tested reference logic in place, plus Phase 3/4's core mechanism
 **Still completely unaddressed, flagged since Phase 3:** the Xano-side signature-verification + anti-replay endpoint (checks the Foxit-signed document, verifies the warrant's `used` flag, flips it, transitions `signed -> active`) has no Python reference implementation or test file yet, unlike everything else in this project. Correctly not attempted in this session's Xano build either. Needs its own reference module (mirroring the `state_machine.py`/`audit_log.py` pattern) before it's safe to build in Xano — see `docs/xano-setup.md` §9.
 
 **Environment note:** working from local VS Code, not GitHub Codespaces (billing ran out) — this doesn't change anything about the Doctavian/Foxit network restrictions (those were about Claude's own sandbox, not Codespaces specifically), but any workflow notes that assumed a Codespace terminal should be read as "your local machine" instead going forward.
+
+## What Phase 6 Actually Built
+
+**The §9 gap (flagged since Phase 3) is now closed at the reference-implementation level:**
+- `apps/agent/src/tegata_agent/warrant_verification.py` — signature verification + anti-replay logic. Checks, in order: (1) `used` flag (anti-replay — checked before the envelope is even inspected, on purpose), (2) envelope fully `EXECUTED`, (3) document hash + signer email match what was sent for signature, (4) delegates the actual `signed -> active` transition to `state_machine.validate_transition` (no duplicated transition rules). `test_warrant_verification.py` — 17 tests. **Full regression: 137/137 pass.**
+- A second, previously-unflagged gap was found while starting this phase: there was also no `POST /warrants` (create/persist) endpoint anywhere — `score` and `derive_approval_requirement` only compute values in isolation, nothing hands back a `warrant_id`. Documented as a new gap.
+- `docs/xano-setup.md` §9a (`POST /verify-signature` spec, mirrors `warrant_verification.py`) and §9b (`POST /warrants` spec, pure persistence — reuses `score`/`derive_approval_requirement`, no new business logic) added. **Neither endpoint exists in the live Xano workspace yet** — this is the main blocker for real-Xano-mode below.
+
+**`apps/web` — Next.js 14 (App Router) frontend, three views:**
+- Requester (`/`) — submit a request, see the risk score + tier + required approver count immediately (Wow Moment: differing approver count for low vs. high risk).
+- Approver (`/approver`) — list warrants, sign them (tracks partial signatures when `required_approver_count` is 2), and a second "Sign" click on an already-active warrant demonstrates the anti-replay rejection **visibly in the UI** — banner text, not just an API error in a network tab (Wow Moment / ROADMAP's explicit Phase 6 "done when" line).
+- Audit trail (`/audit/[warrantId]`) — renders the hash-chained entries and a chain-integrity banner.
+- `lib/referenceLogic.ts` — a literal TypeScript port of `risk_engine.py`/`approval_rules.py`/`state_machine.py`/`audit_log.py`/`ttl.py`/`warrant_verification.py`. Not a separate reimplementation — same constants, same formulas, same ordering of checks.
+- `lib/mockStore.ts` + `/api/mock/*` route handlers — an in-memory backend built on `referenceLogic.ts`, used when `NEXT_PUBLIC_API_MODE=mock` (the default).
+- `lib/apiClient.ts` — single adapter switching between `/api/mock/*` and a real Xano base URL via `NEXT_PUBLIC_API_MODE`; once §9a/§9b exist in Xano, flipping this env var is the only change needed, no frontend code changes.
+- **Manually smoke-tested against a real running `next start` server in Claude's sandbox** (not just unit-level): create → sign → activate → replay attempt → confirmed `403 replay_rejected` → confirmed audit chain has exactly one `signed_and_activated` entry and `chain_intact: true`. Full curl transcript available on request if you want to re-verify before trusting it.
+- `npx tsc --noEmit` clean, `npx next build` succeeds.
+
+**`tests/e2e/`** — Playwright, two spec files (`happy-path.spec.ts`, `replay-rejection.spec.ts`) plus `playwright.config.ts` (runs `apps/web` in mock mode on port 3100). **Typechecked clean in Claude's sandbox but the actual browser run was NOT possible there** — Claude's sandbox network is restricted and cannot reach `cdn.playwright.dev` to download the Chromium binary. This is the one thing that still needs to happen on your machine before Phase 6 can honestly be marked done — see immediate priorities below.
+
+`scripts/verify_phase6_frontend.sh` — the real (non-pytest) verification script: installs deps, installs Playwright's Chromium, typechecks, runs the full Python regression, then runs Playwright against a real browser. Supports `--mode=xano` for once §9a/§9b exist. **Ran successfully through Step 4 (typecheck + full pytest regression) in Claude's sandbox; Step 5 (actual Playwright browser run) could not run there** for the same network-restriction reason as above — run it yourself locally, that's the actual pass/fail signal for this phase.
+
+`.github/workflows/phase-6.yml` — three jobs: agent regression (pytest+ruff), frontend typecheck+build, and Playwright e2e in mock mode (GitHub Actions runners aren't network-restricted the way Claude's sandbox is, so this job should actually work in CI even though it couldn't run locally in this session).
+
+## Not Yet Done / Known Gaps (updated)
+- **Run `./scripts/verify_phase6_frontend.sh` for real, on your machine** — this is the one item standing between "written and typechecked" and "actually verified." Nothing about the mock-mode logic is expected to fail (it was smoke-tested manually via curl against every code path including the replay rejection), but an actual Playwright browser run is the real bar, not a curl transcript.
+- `POST /verify-signature` (§9a) and `POST /warrants` (§9b) — specced, not built in Xano yet. Real-Xano-mode e2e (`--mode=xano`) is expected to 404 until these exist.
+- Everything carried over from Phase 5's gaps (auto-expire scheduled task, `/audit-log/append` Function Stack, Doctavian re-verification, `phase-sync.sh` never run against real GitHub, nothing merged to `main` yet) is still exactly as open as it was — Phase 6 didn't touch any of it.
+- `apps/web`'s mock backend is intentionally in-memory and resets on server restart — fine for a demo, not persistence.
+
+## Notes for the Next Session
+**Immediate priorities, in order:**
+1. **Run `./scripts/verify_phase6_frontend.sh`** locally (not in a network-restricted container) — installs Playwright's Chromium and actually runs both e2e specs against a real browser. This is the real confirmation Phase 6 is genuinely done, not just typechecked.
+2. **Build the two missing Xano endpoints** (§9a `POST /verify-signature`, §9b `POST /warrants` — specs are in `docs/xano-setup.md`), then run `./scripts/verify_phase6_frontend.sh --mode=xano` with `NEXT_PUBLIC_XANO_API_BASE_URL` set, alongside re-verifying the already-flagged Xano discrepancies (`auth.role` precondition, `resource_sensitivity` for `db_payment_prod`, the `internal_wiki` medium-vs-low scoring case, audit-log hash mismatches from contaminated test data, `auto_expire_sweep` needing manual trigger).
+3. **Merge the branch chain to `main`** — this has been deferred since Phase 3 and the chain keeps growing (`phase/6-frontend-demo` now contains everything through Phase 5 plus this). Do this once 1-2 above are confirmed.
+4. Phase 7 (stretch features) and Phase 8 (submission materials) remain after that, with the September 3 deadline getting closer — worth reassessing scope honestly at that point given depth-over-breadth.

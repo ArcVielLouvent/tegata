@@ -102,7 +102,7 @@ tegata/
 ## Running the Project
 
 ```bash
-# Agent (Python) — 120 tests as of Phase 5
+# Agent (Python) — 137 tests as of Phase 6
 cd apps/agent
 pip install -r requirements.txt
 pytest
@@ -115,13 +115,17 @@ python scripts/verify_foxit_envelope.py your-real-email@example.com
 python scripts/verify_nlu_frontdoor.py "your test request text"
 python scripts/verify_auto_expire_demo.py
 
-# Web (Next.js) — Phase 6, not yet built
+# Web (Next.js) — Phase 6. Defaults to a mock backend (no Xano needed);
+# see apps/web/.env.local.example for switching to a real Xano workspace
+# once docs/xano-setup.md §9a/§9b are built there.
+npm install          # from repo root — this is an npm workspace
 cd apps/web
-pnpm install
-pnpm dev
+npm run dev          # http://localhost:3000
 
-# E2E — Phase 6
-pnpm playwright test
+# E2E (Phase 6) — real browser test, not just pytest. See
+# scripts/verify_phase6_frontend.sh for the full verification flow
+# (installs Playwright's Chromium, typechecks, runs pytest, then this).
+npm run test:e2e     # from repo root
 ```
 
 ## Phase Status Sync
