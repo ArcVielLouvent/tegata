@@ -22,13 +22,12 @@ no-code visual builder automatically in sync with a code file.
 
 | Endpoint / task | Reference module | Test file |
 |---|---|---|
-| `POST /score` | `risk_engine.py` | `test_risk_engine.py` |
+| `POST /score` — scores the request AND persists the warrant, incl. `document_hash`/`approver_email` (see §9a) | `risk_engine.py` + `warrant_verification.py`'s hash concept | `test_risk_engine.py` |
 | `POST /derive-approval-requirement` | `approval_rules.py` | `test_approval_rules.py` |
 | Status transition guard | `state_machine.py` | `test_state_machine.py` |
 | `POST /audit-log/append` | `audit_log.py` | `test_audit_log.py` |
 | Scheduled auto-expire sweep | `auto_expire.py` + `ttl.py` | `test_auto_expire.py`, `test_ttl.py` |
-| `POST /verify-signature` (see §9a) | `warrant_verification.py` | `test_warrant_verification.py` |
-| `POST /warrants` (see §9b) | *(persistence only — reuses `score`/`derive_approval_requirement`)* | `test_risk_engine.py`, `test_approval_rules.py` |
+| `POST /warrants/transition` — all status transitions incl. signature verification for `-> active` (see §9b) | `state_machine.py` + `warrant_verification.py` | `test_state_machine.py`, `test_warrant_verification.py` |
 
 ---
 
@@ -76,9 +75,17 @@ Mirrors the `Warrant` object in `tegata.schema.json`:
 - [ ] `status` — enum matching `WarrantStatus`
       (`requested`/`scored`/`pending_approval`/`signed`/`active`/
       `expired`/`revoked`/`expired_unapproved`)
-- [ ] `used` — bool, default `false` (anti-replay flag, see §9)
+- [x] `used` — bool, default `false` (anti-replay flag, see §9)
 - [ ] `document_url` — text, nullable
-- [ ] `expires_at` — timestamp, nullable
+- [x] `document_hash` — text, nullable — added 2026-08-28, populated by
+      `POST /score` (see §9a). SHA-256 of the risk-scoring parameters,
+      NOT the actual Doctavian `.docx` bytes — see §9a's "known
+      simplification" note before treating this as real document
+      integrity protection.
+- [x] `approver_email` — text, nullable — added 2026-08-28, populated
+      by `POST /score` via "first user with role=approver" lookup (no
+      real routing logic yet — see §9a).
+- [x] `expires_at` — timestamp, nullable
 
 ### `audit_log`
 - [ ] `entry_id` — text, unique
@@ -267,72 +274,134 @@ by hand (Postman or Xano's "Run & Debug") and confirm each step:
 If every box above checks out, Xano's core (Phases 1 and 5) is real,
 not just reference logic.
 
-## 9. What's still open
+## 9. Signature verification + anti-replay — CONFIRMED BUILT (2026-08-25/28)
 
-- **RESOLVED 2026-08-28 — reference module written.**
-  `apps/agent/src/tegata_agent/warrant_verification.py` +
-  `test_warrant_verification.py` (17 tests, all passing) now exist,
-  mirroring the `state_machine.py`/`audit_log.py` pattern. See §9a below
-  for the Xano Function Stack spec to build against it. The Python
-  reference is the source of truth; build Xano to match it, not the
-  other way around.
-- **NEW gap, found while starting Phase 6:** there is also no
-  `POST /warrants` (create) endpoint in the 5 endpoints built so far —
-  `POST /score` and `POST /derive-approval-requirement` compute values
-  but nothing persists a `warrants` row and hands back a `warrant_id`.
-  Without this, a UI (or any client) cannot actually start a real
-  request against Xano end-to-end, only compute the two intermediate
-  values. See §9b below for the spec. This has no separate Python
-  reference module of its own — it's pure persistence (call `score`,
-  call `derive_approval_requirement`, insert one `warrants` row with
-  status `pending_approval`, return it), no new business logic to test
-  beyond what `test_risk_engine.py`/`test_approval_rules.py` already
-  cover.
-- Live demonstration of hash-chain tamper detection against a real
-  Xano table (Phase 7 "Stretch C" — deliberately editing a stored row
-  via the Xano dashboard and showing the equivalent of
-  `audit_log.verify_chain()` catch it). The hashing/chaining logic
-  itself is implemented as of Phase 5 (§6 above, `audit_log.py`);
-  Stretch C is the demo-video moment built on top of it, not new logic.
+**Status: resolved, both the earlier gaps this section used to flag are closed.**
 
-### 9a. `POST /verify-signature` (new — mirrors `warrant_verification.py`)
+The reference module (`apps/agent/src/tegata_agent/warrant_verification.py`
++ `test_warrant_verification.py`, 17 tests, 137/137 full regression
+passing) was written first, per this project's own rule of never
+building Xano logic without a tested Python reference to match. Xano's
+own AI agent then built and confirmed the two pieces below against a
+walkthrough of its actual generated code — this is what's really in the
+live workspace as of 2026-08-28, not a spec waiting to be built.
 
-Test against: `test_warrant_verification.py`.
+**Two corrections to earlier assumptions in this file, found while
+verifying:**
+1. There is **no separate `POST /warrants` create endpoint**. `POST
+   /score` (endpoint #17) already does the full job: scores the
+   request, derives the approval requirement, AND persists the
+   `warrants` row, returning a `warrant_id`. The earlier §9b spec below
+   describing a standalone `/warrants` endpoint was based on an
+   incorrect assumption from the Xano dashboard's endpoint list alone
+   (before actually opening `/score`'s Function Stack) — it's kept
+   below purely as a record of that assumption, not something to build.
+2. The signature-verification endpoint is **`POST /warrants/transition`**
+   (a generic status-transition endpoint, not a signature-specific one)
+   — signature checks only activate when `to_status == "active"`. Every
+   other transition (`active -> revoked`, etc.) skips them.
 
-Input: `warrant_id`, plus whatever Foxit's "get envelope details" call
-returns for that warrant's envelope (`envelope_status`,
-`returned_document_hash` — hash the downloaded signed file yourself,
-Foxit doesn't hand you a hash — and `signer_email`).
+### 9a. `POST /score` — create (confirmed contract)
 
-Function Stack steps, in this exact order (order matters — see the
-module docstring on why replay is checked first):
-1. Get Record: `warrants` where `warrant_id` = input. If not found, 404.
-2. **Precondition:** `warrants.used == false`. If not, return the same
-   error shape as `ReplayRejectedError` (e.g. `403` with
-   `{"error": "replay_rejected", "warrant_id": ...}`) and do **not**
-   touch the record.
-3. **Precondition:** `envelope_status == "EXECUTED"`. If not, `409` /
-   `EnvelopeNotExecutedError`-shaped response.
-4. **Precondition:** `returned_document_hash == warrants.document_hash`
-   (a `document_hash` field, computed when the document was first sent
-   to Foxit — add this column to `warrants` if it doesn't exist yet)
-   AND `signer_email` (case-insensitive) matches the expected approver
-   for this warrant. If either fails, `409` /
-   `SignatureMismatchError`-shaped response.
-5. Only if 2-4 all pass: call `validate_transition` (existing function)
-   with `current=warrants.status`, `target="active"`. If it throws,
-   propagate as-is (same behavior as every other endpoint that calls
-   this function).
-6. Update the `warrants` row: `used = true`, `status = "active"`.
-7. Call `append_audit_log` (existing shared function) with
-   `event = "signed_and_activated"`, `actor = signer_email`.
-8. Return the updated warrant.
+Input: `resource`, `reason`, `requested_duration_minutes`, `ticket_ref?`.
+(`requested_by` is NOT a separate input — it's taken from
+`$authenticated_user.email`, i.e. whoever's bearer token is on the
+request, normalized to lowercase/trimmed.)
 
-Restrict this endpoint like `POST /audit-log/append` — it mutates
-state, so `security_admin` or a dedicated system/service role, not
-`requester`.
+Function Stack (confirmed, 8 functions): insert `requests` row (with
+`resource` trimmed+lowercased) → call `score()` → call
+`derive_approval_requirement()` → look up the first `user` with
+`role == "approver"` (fallback: `security-admin@tegata.internal`) →
+build a canonical JSON string of `{reason, requested_duration_minutes,
+resource, risk_score, risk_tier}` (alphabetical keys, from the
+*normalized* `$request.resource`, not raw `$input.resource` — this
+matters if you ever add trimming/casing rules, the hash must be
+computed from the same string `score`/`warrants` actually store) → SHA-256
+it into `document_hash` → insert `warrants` row with `document_hash` and
+`approver_email` populated.
 
-### 9b. `POST /warrants` (new — persistence only, no new logic)
+**Known simplification, not a bug:** `document_hash` is a hash of the
+*risk-scoring parameters*, not of the actual `.docx` file Doctavian
+generates. It protects against someone altering the request/score
+metadata after the fact, not against a tampered physical document. A
+production version would hash the real Doctavian output bytes instead.
+Fine for this hackathon's demo; say so plainly if asked.
+
+**Known simplification #2:** `approver_email` is "the first user with
+role=approver" — there's no real approver routing/assignment logic.
+Also fine for a hackathon demo, not fine to imply is production-ready.
+
+### 9b. `POST /warrants/transition` — status transitions incl. signature verification (confirmed contract)
+
+Input: `warrant_id`, `to_status`, and — enforced only when
+`to_status == "active"` — `envelope_status`, `returned_document_hash`,
+`signer_email`.
+
+Function Stack (confirmed): fetch `$authenticated_user` → fetch the
+`warrants` record by `warrant_id` (404 if missing) → RBAC precondition
+per target status (`pending_approval`: requester/approver/security_admin;
+`signed`/`active`: approver/security_admin; `revoked`: security_admin
+only) → **when `to_status == "active"`, in this exact order:**
+1. `warrants.used == true` → **403** `{error: "replay_rejected",
+   warrant_id}` and stop. Nothing below runs — in particular,
+   `append_audit_log` is never called for a rejected replay, so a
+   replay attempt leaves no trace in the audit log (confirmed
+   intentional: the precondition fails before the log-append step is
+   reached at all).
+2. `envelope_status != "EXECUTED"` → `400`
+   `{error: "envelope_not_executed", envelope_status}`.
+3. `returned_document_hash != warrants.document_hash` OR
+   `signer_email` (case-insensitive) `!= warrants.approver_email` →
+   `400` `{error: "signature_mismatch"}`.
+4. Only if 1-3 pass: `validate_transition()` (existing function) →
+   compute `expires_at` → update `warrants` (`used=true`,
+   `status="active"`, `expires_at`) → `append_audit_log(event=
+   "signed_and_activated", actor=signer_email)`.
+
+For every other `to_status`, steps 1-3 are skipped entirely — just
+`validate_transition()` then `append_audit_log()`, same as before this
+signature-verification logic was added.
+
+**Response shape for ALL precondition-thrown errors:** Xano wraps them
+one level deeper than you might expect —
+`{"message": {"error": "<code>", ...}}`, not a flat
+`{"error": "<code>", ...}`. `apps/web/lib/apiClient.ts`'s
+`normalizeErrorBody()` unwraps this and maps known codes to the same
+human-readable text `warrant_verification.py`'s error classes use, so
+the UI shows identical wording whether it's talking to Xano or to the
+app's own mock backend.
+
+**Known gap, not yet resolved:** Xano has no concept of "partial
+signatures" — a `required_approver_count == 2` warrant is expected to
+only report `envelope_status == "EXECUTED"` once *both* signers have
+actually signed inside a single Foxit envelope with two recipients.
+Nothing in this project's `apps/web` UI has been wired to a real Foxit
+envelope yet (Phase 3's `foxit_client.py` is a separate, already-tested
+piece that this endpoint doesn't call directly), so the two-approver
+flow can currently only be smoke-tested by hand-supplying
+`envelope_status: "EXECUTED"` once, not genuinely exercised end-to-end
+with two real signers. Flag this honestly if asked about it — it's the
+biggest remaining gap between "the reference logic is correct" and
+"the full real pipeline is wired together."
+
+### 9c. Resource tiers seed data — CONFIRMED FIXED (2026-08-28)
+
+`resource_tiers` was empty (0 rows) — root cause of the
+`db_payment_prod` sensitivity discrepancy found during Xano
+verification. `seed_resource_tiers` (#13) was rewritten to be
+idempotent (checks each resource name before inserting) and seeded with
+the exact 6 rows `risk_engine.py`'s `RESOURCE_SENSITIVITY` table
+expects. Publish + run it once if `resource_tiers` still shows 0 rows.
+
+---
+
+*Superseded assumption, kept for the record only — do not build this:*
+*the original §9b below assumed a standalone `POST /warrants` create*
+*endpoint existed separately from `/score`. It doesn't; `/score` already*
+*does this job (see 9a above).*
+
+<details>
+<summary>Original (incorrect) §9b spec — click to expand</summary>
 
 Test against: `test_risk_engine.py` + `test_approval_rules.py` (the
 values it persists must match those, nothing new to verify).
@@ -362,3 +431,5 @@ Function Stack steps:
    transitions actually happening).
 7. Return the created warrant (`warrant_id` is the important part —
    nothing downstream can reference this request without it).
+
+</details>
