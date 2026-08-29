@@ -22,6 +22,19 @@ import path from "path";
  */
 export default defineConfig({
   testDir: __dirname,
+  // tests/e2e/xano/full-flow.spec.ts must NEVER run under this config:
+  // this webServer only sets NEXT_PUBLIC_API_MODE=mock, so that spec's
+  // direct POST to NEXT_PUBLIC_XANO_AUTH_BASE_URL + /auth/signup ends up
+  // hitting this Playwright run's own baseURL (http://localhost:3000,
+  // the mock server) instead — which has no /auth/signup route at all,
+  // hence a 404 that looks like a real Xano contract problem but isn't.
+  // Confirmed 2026-08-29 from a real CI run: `testDir: __dirname` alone
+  // picks up everything under tests/e2e/ recursively, xano/ included —
+  // testIgnore is required, not optional. Real-Xano e2e only ever runs
+  // via playwright.xano.config.ts (testDir scoped to xano/ specifically,
+  // and it fails fast if the required Xano env vars are missing rather
+  // than silently hitting the wrong server).
+  testIgnore: ["xano/**"],
   fullyParallel: false, // shared in-memory mock store — specs must not race each other
   workers: 1,
   retries: process.env.CI ? 1 : 0, // safety margin for CI runner variance, not a substitute for the fix above
