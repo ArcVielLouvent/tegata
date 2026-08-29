@@ -575,3 +575,59 @@ that only fails for a non-empty value. This needs to be diagnosed
 directly in Xano's Function Stack — nothing in this repo can fix it
 blind. See the exact diagnostic prompt given to Armand in-chat.
 
+
+## Approver page showing "No requests yet" for a warrant that really exists (2026-08-29)
+
+Armand hit this live, both accounts (requester and approver), right
+after a warrant was confirmed successfully created via POST /score
+(Image 1 of his report — MEDIUM RISK, score 46, all fields correct).
+Real bug, in `unwrapWarrantList()` — the *list* counterpart of the
+unwrap function `db136ab` added for the single-warrant case, but with
+the opposite failure behavior: `unwrapWarrant()`/`normalizeWarrant()`
+throw a loud diagnostic when nothing recognizable is found;
+`unwrapWarrantList()` silently returned `[]`. An unrecognized GET
+/warrants response shape and a genuinely empty list were
+indistinguishable — both just showed "No requests yet", no error, no
+clue.
+
+Fixed: `unwrapWarrantList()` now returns `undefined` (not `[]`) when
+none of the known shapes match; `listWarrants()` throws a diagnostic
+ApiError with the raw response attached in that case. The Approver
+page's `refresh()` now actually catches this (it previously had no
+catch block at all for this call) and shows it as a visible banner.
+A real empty list (bare `[]`, `{warrants: []}`, etc.) still displays
+"No requests yet" normally — only a genuinely unrecognized shape is
+now loud.
+
+**Next real test should show either the warrant on the Approver page,
+or (if the response shape is still wrong) a red banner with the raw
+JSON** — either way, more information than before. If it's the
+banner, send the raw shape and the key list gets fixed for real
+instead of guessed a third time.
+
+## Gemini model name fix (2026-08-29)
+
+`gemini-3.6-flash-lite` (this repo's original guess) was confirmed
+wrong — real error from testing: 404 NOT_FOUND. Armand searched and
+found the real current lineup; independently re-confirmed via web
+search (ai.google.dev, 2026-08-29): `gemini-3.7-flash` (GA, shipped
+2026-08-13, newest flagship) and `gemini-3.5-flash-lite` (GA, real
+lite-tier model) are both real, current model IDs. Swapped
+`llmClient.ts`'s Gemini pair to these two. Also switched from
+`?key=` query-param auth to the `x-goog-api-key` header, matching
+Google's current documented curl example for gemini-3.7-flash exactly
+(both work, this just matches what's actually documented now).
+
+Groq's `401 Invalid API Key` and OpenRouter's `429` from Image 2 are
+NOT code bugs — Groq's error is unambiguous (the key string itself
+isn't accepted, independent of account age), and OpenRouter's
+rate-limit was on `z-ai/glm-4.5:free`'s shared upstream free pool
+(that's a limit on the whole free-tier model's demand across all
+users, not tied to how old Armand's own account/key is — a
+brand-new key can still hit it). Things to check for the Groq key
+specifically: no leading/trailing whitespace or quotes when pasted
+into `.env.local`, and — since Armand is running `next build` +
+`next start` rather than `next dev` — a full restart of the `next
+start` process after any `.env.local` edit (server-only env vars are
+read at process start, same restart requirement as `next dev`, just
+less obvious when the workflow is build-once-serve).

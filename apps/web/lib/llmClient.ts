@@ -37,11 +37,14 @@ export class FallbackLLMClient implements LLMClient {
   }
 }
 
-/** Model name confirmed the same way as the Python client: a real
- * Gemini API error message (2026-08-24) reporting gemini-2.5-flash's
- * replacement. gemini-3.6-flash-lite is an EDUCATED GUESS following
- * Google's flash/flash-lite naming pattern, not independently
- * confirmed — same caveat as llm_client.py. */
+/** Model IDs confirmed via a real web search on 2026-08-29 (both are GA/
+ * stable per ai.google.dev as of this date) — gemini-3.6-flash-lite,
+ * used here previously, was a guess that turned out wrong (confirmed
+ * 404 NOT_FOUND against the real API, exactly as this file originally
+ * flagged as a risk). Recheck ai.google.dev/gemini-api/docs/models
+ * before trusting these past the hackathon deadline; Google's Flash
+ * line moves fast (3.6 -> 3.7 shipped three weeks apart per Google's
+ * own announcement). */
 export class GeminiLLMClient implements LLMClient {
   constructor(
     private apiKey: string,
@@ -49,9 +52,13 @@ export class GeminiLLMClient implements LLMClient {
   ) {}
 
   async complete(systemPrompt: string, userMessage: string): Promise<string> {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`, {
+    // x-goog-api-key header, not ?key= query param — matches Google's
+    // current documented curl example for gemini-3.7-flash exactly
+    // (both historically work, but this is what's actually documented
+    // now).
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-goog-api-key": this.apiKey },
       body: JSON.stringify({ contents: [{ parts: [{ text: `${systemPrompt}\n\n${userMessage}` }] }] }),
     });
     if (!res.ok) throw new Error(`Gemini API error ${res.status}: ${await res.text()}`);
@@ -137,7 +144,11 @@ export function buildDefaultFallbackClient(): FallbackLLMClient {
   const openrouterKey = process.env.OPENROUTER_API_KEY;
 
   if (geminiKey) {
-    for (const model of ["gemini-3.6-flash", "gemini-3.6-flash-lite"]) {
+    // gemini-3.7-flash: newest GA flagship (shipped 2026-08-13,
+    // confirmed via web search 2026-08-29). gemini-3.5-flash-lite:
+    // confirmed real lite-tier model, replaces the previous (wrong)
+    // gemini-3.6-flash-lite guess that 404'd in real testing.
+    for (const model of ["gemini-3.7-flash", "gemini-3.5-flash-lite"]) {
       providers.push({ name: `gemini:${model}`, client: new GeminiLLMClient(geminiKey, model) });
     }
   }

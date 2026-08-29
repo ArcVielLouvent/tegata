@@ -24,11 +24,22 @@ export default function ApproverPage() {
   const needsLogin = apiMode() === "xano" && !authLoading && !token;
   const effectiveSignerEmail = apiMode() === "xano" ? user?.email || signerEmail : signerEmail;
 
+  const [listError, setListError] = useState<string | null>(null);
+
   async function refresh() {
     setLoading(true);
+    setListError(null);
     try {
       const { warrants } = await listWarrants();
       setWarrants(warrants);
+    } catch (err) {
+      // Was previously unhandled here (listWarrants() used to silently
+      // return [] on an unrecognized response shape, so there was
+      // nothing to catch) — now that it throws a diagnostic ApiError
+      // instead, this needs to actually surface it, or a real listing
+      // failure looks identical to "no requests yet" again, just moved
+      // one level up instead of fixed.
+      setListError(err instanceof ApiError ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -157,7 +168,13 @@ export default function ApproverPage() {
         </button>
       </div>
 
-      {warrants.length === 0 && !loading && <p className="muted">No requests yet — submit one from the Requester view.</p>}
+      {listError && (
+        <div className="banner error" data-testid="list-error">
+          {listError}
+        </div>
+      )}
+
+      {warrants.length === 0 && !loading && !listError && <p className="muted">No requests yet — submit one from the Requester view.</p>}
 
       <div data-testid="warrant-list" style={{ marginTop: "1.25rem" }}>
         {warrants.map((w) => {
