@@ -511,3 +511,67 @@ this). What's left is verification against the real external services
 providers) — none of it is buildable further from this sandbox
 without real network access, so the next session's job is running
 these live, not writing more code blind.
+
+## Independent audit of the "full integration" claim above (2026-08-29)
+
+Armand asked for this to actually be checked, not taken on faith. Went
+file-by-file (`doctavianClient.ts`/`foxitClient.ts`/`warrantVariables.ts`
+diffed against their Python originals line-by-line; `nluFrontdoor.ts`
+diffed against `nlu_frontdoor.py`; the real `tegata-warrant.docx`
+template unzipped and grepped for its actual `{!field}`/`hidden=`
+expressions rather than trusting the docstring's description of it).
+
+**Confirmed genuinely faithful, not just claimed:**
+- Doctavian/Foxit clients: endpoint paths, header names, body field
+  names (`emailId` not `email`, `allowNameChange: false`, etc.),
+  response-parsing paths (`result.data.files[0]`,
+  `result.data.document`) all match the Python originals exactly.
+- `warrantVariables.ts` matches `warrant_variables.py` field-for-field.
+- `apps/web/assets/tegata-warrant.docx` — MD5-identical to
+  `docs/templates/tegata-warrant.docx` (the confirmed-correct template
+  from the Phase 2 Doctavian-syntax resolution). Verified by unzipping
+  and grepping the actual `document.xml`: uses `{!fieldname}` syntax
+  (not native Word MERGEFIELD — zero matches), and its
+  `hidden="{!$required_approver_count == '2'}"` /
+  `!= '2'` pair genuinely drives the "document structure changes with
+  risk" story the NLU/warrant-variables docstrings claim — this isn't
+  an unused variable, the template actually branches on it.
+- `nluFrontdoor.ts`'s prompts are copied verbatim from
+  `nlu_frontdoor.py` (diffed character-for-character).
+- The `openrouter/free` model repeated twice in `llmClient.ts` looked
+  like a copy-paste bug at first glance — it's not; the Python
+  original does the exact same thing intentionally (no second free
+  slug exists to pin).
+
+**Real bugs found and fixed this pass:**
+- **`apiClient.ts`'s `getWarrant()`** assumed a single-record
+  `GET /warrants/{warrant_id}` endpoint exists in Xano. It was never
+  confirmed to exist — only the LIST endpoint (`GET /warrants`) was
+  ever verified. This would have 404'd on every visit to
+  `/audit/<warrant_id>` in xano mode (the exact page Armand's own
+  step-5 manual test plan above ends on), and on `signWarrant()`'s
+  legacy fallback path. Fixed: `getWarrant()` now fetches the
+  confirmed-working list and filters client-side instead of assuming
+  the single-record endpoint exists.
+
+**Still-unconfirmed assumption, flagged but not fixed (can't fix
+blind):** `getAuditLog()` calls `GET /audit-log?warrant_id=<id>`,
+assuming the query parameter is literally named `warrant_id`. The
+endpoint's existence is confirmed (Xano dashboard showed "1 input, 3
+functions"), but the actual input parameter's name was never
+confirmed. If the audit trail page in xano mode comes back empty or
+errors, check this first — open the endpoint in Xano's dashboard and
+confirm the input name matches.
+
+**New Xano-side bug found live (not a frontend issue — confirmed by
+reading `apiClient.ts`'s actual request body, which correctly sends
+`ticket_ref` as a plain string like `"JIRA-999"`):** submitting a
+request with a real (non-empty) `ticket_ref` value returns
+`Invalid filter: trim` from `/score`. Works fine with `ticket_ref: ""`
+(the fallback c32c317 sends when the field is left blank), breaks with
+a real value — meaning something in `/score`'s Function Stack applies
+a `|trim` filter to `ticket_ref` (or a field affected by it) in a way
+that only fails for a non-empty value. This needs to be diagnosed
+directly in Xano's Function Stack — nothing in this repo can fix it
+blind. See the exact diagnostic prompt given to Armand in-chat.
+
