@@ -139,9 +139,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 /** Best-effort adapter for a real Xano warrant record into the shape this
  * UI already renders (MockWarrant-ish). Every read is defensive with a
  * fallback, because the exact Xano response shape hasn't been confirmed
- * field-by-field yet — see the module docstring. No-op in mock mode. */
+ * field-by-field yet — see the module docstring. No-op in mock mode.
+ * Throws a diagnostic ApiError (not a cryptic TypeError) if `raw` itself
+ * is missing — see unwrapWarrant() below, which is what actually finds
+ * `raw` in the first place. */
 function normalizeWarrant(raw: any): MockWarrant {
   if (MODE === "mock") return raw as MockWarrant;
+  if (!raw || typeof raw !== "object") {
+    throw new ApiError(0, {
+      error: "unexpected_response_shape",
+      message: `Expected a warrant object but got ${JSON.stringify(raw)}. This means unwrapWarrant() in apiClient.ts couldn't find one in Xano's response — see the console for the full raw response and fix unwrapWarrant()'s key list to match.`,
+    });
+  }
 
   const score = raw.risk_score?.score ?? raw.risk_score ?? raw.score ?? 0;
   const tier = raw.risk_score?.tier ?? raw.risk_tier ?? raw.tier ?? "low";
@@ -180,9 +189,40 @@ function normalizeWarrant(raw: any): MockWarrant {
   } as MockWarrant;
 }
 
+/** Tries several plausible shapes for "the warrant object" in a Xano
+ * response, since the exact wrapping (`{warrant: ...}` vs `{data: ...}`
+ * vs the object directly at the top level) was never confirmed against
+ * a real response body — confirmed 2026-08-29 that assuming `{warrant:
+ * ...}` unconditionally crashes with "Cannot read properties of
+ * undefined" when it's wrong. Returns undefined (not a throw) if
+ * nothing plausible is found, so callers can build a proper diagnostic
+ * ApiError with the full raw response attached — see normalizeWarrant(). */
+function unwrapWarrant(result: any): any {
+  if (!result || typeof result !== "object") return undefined;
+  if (result.warrant && typeof result.warrant === "object") return result.warrant;
+  if (result.data && typeof result.data === "object" && !Array.isArray(result.data)) return result.data;
+  // If the result itself already looks like a warrant (has an id-ish or
+  // status field), it's probably not wrapped at all.
+  if ("warrant_id" in result || "id" in result || "status" in result) return result;
+  return undefined;
+}
+
+/** Same idea as unwrapWarrant() but for the LIST endpoint — tries
+ * `{warrants: [...]}`, `{data: [...]}`, `{items: [...]}`, or the
+ * response being a bare array already. */
+function unwrapWarrantList(result: any): any[] {
+  if (Array.isArray(result)) return result;
+  if (!result || typeof result !== "object") return [];
+  if (Array.isArray(result.warrants)) return result.warrants;
+  if (Array.isArray(result.data)) return result.data;
+  if (Array.isArray(result.items)) return result.items;
+  return [];
+}
+
 export async function listWarrants(): Promise<{ warrants: MockWarrant[] }> {
-  const result = await request<{ warrants: any[] }>("/warrants", { method: "GET" });
-  return { warrants: (result.warrants || []).map(normalizeWarrant) };
+  const result = await request<any>("/warrants", { method: "GET" });
+  if (MODE === "mock") return { warrants: (result.warrants || []).map(normalizeWarrant) };
+  return { warrants: unwrapWarrantList(result).map(normalizeWarrant) };
 }
 
 export async function getWarrant(warrantId: string): Promise<{ warrant: MockWarrant }> {
@@ -218,8 +258,9 @@ export async function createWarrant(accessRequest: AccessRequest): Promise<{ war
   // optional and ignores an empty string the same way it ignores a
   // missing key.
   const body = { ...accessRequest, ticket_ref: accessRequest.ticket_ref ?? "" };
-  const result = await request<{ warrant: any }>(path, { method: "POST", body: JSON.stringify(body) });
-  return { warrant: normalizeWarrant(result.warrant) };
+  const result = await request<any>(path, { method: "POST", body: JSON.stringify(body) });
+  const raw = MODE === "mock" ? result.warrant : unwrapWarrant(result);
+  return { warrant: normalizeWarrant(raw) };
 }
 
 export async function signWarrant(warrantId: string, signerEmail: string): Promise<{ warrant: MockWarrant }> {
@@ -238,7 +279,7 @@ export async function signWarrant(warrantId: string, signerEmail: string): Promi
   // prepareSignature's module docs). Prefer confirmSignature() below
   // for any warrant that has a real folder_id from prepareSignature().
   const { warrant: current } = await getWarrant(warrantId);
-  const result = await request<{ warrant: any }>("/warrants/transition", {
+  const result = await request<any>("/warrants/transition", {
     method: "POST",
     body: JSON.stringify({
       warrant_id: warrantId,
@@ -248,7 +289,7 @@ export async function signWarrant(warrantId: string, signerEmail: string): Promi
       signer_email: signerEmail,
     }),
   });
-  return { warrant: normalizeWarrant(result.warrant) };
+  return { warrant: normalizeWarrant(unwrapWarrant(result)) };
 }
 
 /** Step 1 of the real-signing pipeline: generate the warrant document
@@ -288,7 +329,7 @@ export async function attachEnvelope(
   warrantId: string,
   envelope: { document_id: string; document_hash: string; folder_id: string | number | null; signing_url: string | null }
 ): Promise<{ warrant: MockWarrant }> {
-  const result = await request<{ warrant: any }>("/warrants/attach-envelope", {
+  const result = await request<any>("/warrants/attach-envelope", {
     method: "POST",
     body: JSON.stringify({
       warrant_id: warrantId,
@@ -298,7 +339,7 @@ export async function attachEnvelope(
       signing_url: envelope.signing_url,
     }),
   });
-  return { warrant: normalizeWarrant(result.warrant) };
+  return { warrant: normalizeWarrant(unwrapWarrant(result)) };
 }
 
 /** Step 2, once the approver has actually signed at the Foxit signing_url
@@ -309,11 +350,11 @@ export async function attachEnvelope(
  * until it's built this returns the same 404 pattern §9a/§9b did before
  * they existed. */
 export async function confirmSignature(warrantId: string, folderId: string | number): Promise<{ warrant: MockWarrant }> {
-  const result = await request<{ warrant: any }>("/warrants/confirm-signature", {
+  const result = await request<any>("/warrants/confirm-signature", {
     method: "POST",
     body: JSON.stringify({ warrant_id: warrantId, folder_id: folderId }),
   });
-  return { warrant: normalizeWarrant(result.warrant) };
+  return { warrant: normalizeWarrant(unwrapWarrant(result)) };
 }
 
 export function getAuditLog(warrantId: string): Promise<{ entries: any[]; chain_intact: boolean; broken_at_index: number | null }> {
