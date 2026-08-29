@@ -10,6 +10,7 @@
   "scripts": {
     "test:schema-consistency": "ts-node tests/schema_consistency.test.ts",
     "test:e2e": "playwright test --config=tests/e2e/playwright.config.ts",
+    "test:e2e:xano": "playwright test --config=tests/e2e/playwright.xano.config.ts",
     "lint": "eslint . --ext .ts,.tsx"
   },
   "devDependencies": {
