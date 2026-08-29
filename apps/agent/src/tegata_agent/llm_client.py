@@ -63,17 +63,28 @@ class GeminiLLMClient:
     https://github.com/google-gemini/deprecated-generative-ai-python) and
     a Gemini API key.
 
-    Model name confirmed directly from a real API error message during
-    testing (2026-08-24): the API itself reported "gemini-2.5-flash is no
-    longer available... use models/gemini-3.6-flash" — this is the most
-    reliable source available (ground truth from the provider, not a doc
-    page that might be stale). Check https://ai.google.dev/gemini-api/docs/models
-    for anything newer before the deadline."""
+    Model names confirmed via a real web search of ai.google.dev,
+    2026-08-29 (both GA/stable as of that date) — gemini-3.6-flash-lite,
+    used here previously, was an educated guess that turned out wrong
+    (confirmed 404 NOT_FOUND in real testing against the TS port of this
+    same client, apps/web/lib/llmClient.ts). Google's Flash line moves
+    fast (3.6 -> 3.7 shipped three weeks apart per Google's own
+    announcement) — recheck https://ai.google.dev/gemini-api/docs/models
+    before trusting these past the hackathon deadline.
 
-    def __init__(self, api_key: str, model: str):
+    UNVERIFIED: the `http_options={"timeout": ...}` constructor kwarg is
+    documented for the current google-genai SDK, but hasn't actually been
+    run in this project (the TS port test-verified its own AbortController
+    timeout in real testing instead — this Python client is a secondary
+    reference implementation, not what apps/web actually calls). Confirm
+    against your installed google-genai version before relying on it."""
+
+    def __init__(self, api_key: str, model: str, timeout_seconds: float = 15.0):
         from google import genai
 
-        self._client = genai.Client(api_key=api_key)
+        self._client = genai.Client(
+            api_key=api_key, http_options={"timeout": timeout_seconds * 1000}
+        )
         self._model = model
 
     def complete(self, system_prompt: str, user_message: str) -> str:
@@ -93,10 +104,12 @@ class GroqLLMClient:
     replacements are openai/gpt-oss-120b and openai/gpt-oss-20b. Check
     that page again before the deadline in case of further changes."""
 
-    def __init__(self, api_key: str, model: str, max_tokens: int = 1024):
+    def __init__(
+        self, api_key: str, model: str, max_tokens: int = 1024, timeout_seconds: float = 15.0
+    ):
         from groq import Groq
 
-        self._client = Groq(api_key=api_key)
+        self._client = Groq(api_key=api_key, timeout=timeout_seconds)
         self._model = model
         self._max_tokens = max_tokens
 
@@ -116,17 +129,29 @@ class OpenRouterLLMClient:
     """OpenRouter exposes an OpenAI-compatible API, so this uses the
     `openai` package pointed at OpenRouter's base URL.
 
-    Uses "openrouter/free" — OpenRouter's own auto-router that always
-    selects from whatever free models are currently available — instead
-    of a pinned model slug. OpenRouter's free-tier lineup was found to
-    rotate very frequently (weekly, per their own model listing), so
-    pinning a specific ":free" slug (as an earlier version of this file
-    did) breaks often; the auto-router is the future-proof choice here."""
+    Uses two SPECIFIC free Nvidia Nemotron models
+    (nvidia/nemotron-3-ultra-550b-a55b:free,
+    nvidia/nemotron-3.5-lightning:free) instead of the "openrouter/free"
+    auto-router used previously. Switched 2026-08-29 after the
+    auto-router hit a real 429 in testing ("z-ai/glm-5.2:free is
+    temporarily rate-limited upstream") — the auto-router can land on
+    whichever underlying free model is least overloaded at that moment,
+    which isn't necessarily anything with its own separate rate-limit
+    pool. Pinning to two specific named free models is a reasonable
+    inference that each has its own pool rather than sharing one across
+    every OpenRouter free-tier user regardless of which model they get
+    routed to — NOT independently confirmed how OpenRouter scopes
+    free-tier limits internally. Slugs confirmed via OpenRouter's own
+    model pages (openrouter.ai/nvidia), 2026-08-29."""
 
-    def __init__(self, api_key: str, model: str, max_tokens: int = 1024):
+    def __init__(
+        self, api_key: str, model: str, max_tokens: int = 1024, timeout_seconds: float = 15.0
+    ):
         from openai import OpenAI
 
-        self._client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
+        self._client = OpenAI(
+            api_key=api_key, base_url="https://openrouter.ai/api/v1", timeout=timeout_seconds
+        )
         self._model = model
         self._max_tokens = max_tokens
 
@@ -146,31 +171,33 @@ def build_default_fallback_client(
     gemini_api_key: str | None = None,
     groq_api_key: str | None = None,
     openrouter_api_key: str | None = None,
-    gemini_models: tuple[str, str] = ("gemini-3.6-flash", "gemini-3.6-flash-lite"),
+    gemini_models: tuple[str, str] = ("gemini-3.7-flash", "gemini-3.5-flash-lite"),
     groq_models: tuple[str, str] = ("openai/gpt-oss-120b", "openai/gpt-oss-20b"),
-    openrouter_models: tuple[str, str] = ("openrouter/free", "openrouter/free"),
+    openrouter_models: tuple[str, str] = (
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "nvidia/nemotron-3.5-lightning:free",
+    ),
 ) -> FallbackLLMClient:
     """Wires up the 6-model fallback chain: 2 Gemini -> 2 Groq -> 2
     OpenRouter, in that order. Any API key left as None skips that
     provider's 2 models entirely (e.g. if you only have a Groq key,
     pass only groq_api_key and you get a 2-model chain, not 6).
 
-    Model names last verified 2026-08-24 against real API testing:
-    - gemini-3.6-flash: confirmed via a real API error message (Google's
-      own deprecation notice for gemini-2.5-flash/2.0-flash)
-    - gemini-3.6-flash-lite: EDUCATED GUESS following Google's typical
-      flash/flash-lite naming pattern, NOT independently confirmed —
-      verify this one specifically before relying on it
+    Model names last verified 2026-08-29 against real testing (via the
+    TS port, apps/web/lib/llmClient.ts — this Python client is the
+    secondary reference implementation):
+    - gemini-3.7-flash, gemini-3.5-flash-lite: confirmed real GA model
+      IDs via web search of ai.google.dev. The previous
+      gemini-3.6-flash-lite guess 404'd in real testing.
     - openai/gpt-oss-120b, openai/gpt-oss-20b: confirmed via Groq's
       official deprecation page (console.groq.com/docs/deprecations)
-    - openrouter/free (used for both OpenRouter slots): OpenRouter's own
-      auto-router, chosen because their free-tier named models were
-      found to rotate weekly — pinning a specific slug broke almost
-      immediately in real testing. Each call may land on a different
-      underlying free model, which is fine for fallback purposes.
+    - nvidia/nemotron-3-ultra-550b-a55b:free,
+      nvidia/nemotron-3.5-lightning:free: confirmed real slugs via
+      OpenRouter's own model pages. Replaces "openrouter/free" (the
+      auto-router), which hit a real 429 in testing.
 
-    VERIFY gemini-3.6-flash-lite specifically before a demo — everything
-    else above has direct evidence behind it."""
+    Recheck each provider's docs before a demo — this whole area moves
+    fast and every model name here has already been wrong once."""
     providers: list[tuple[str, LLMClient]] = []
 
     if gemini_api_key:
