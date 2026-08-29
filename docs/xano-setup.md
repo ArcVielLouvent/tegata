@@ -474,3 +474,126 @@ Function Stack steps:
    nothing downstream can reference this request without it).
 
 </details>
+
+## 13. Hybrid real-signing pipeline — NOT YET BUILT (spec for Xano AI, 2026-08-29)
+
+Scope decision (Armand, 2026-08-29): the Doctavian-generate →
+download-bytes → Foxit-upload-bytes step is a **binary pass-through**
+between two external APIs. Xano's External API Request steps are built
+for JSON in/out, not this — so that ONE step lives in
+`apps/web/app/api/documents/prepare/route.ts` (Node.js, ported from
+`doctavian_client.py`/`foxit_client.py` — see that route's own module
+docs). Everything else — warrant state, and critically the actual
+signature-status VERIFICATION — stays in Xano, matching Tegata's core
+principle: **the system decides, not whatever the client claims.**
+This is a genuine two-sponsor integration (Xano calling Foxit's real
+API server-to-server), not a client-side shortcut.
+
+Only covers `required_approver_count === 1` so far — see
+PROJECT_STATUS.md for the 2-approver gap, unchanged from §9b.
+
+**Feed this section to Xano's AI agent directly** (same approach as
+the original workspace build — see PROJECT_STATUS.md's "Xano setup,
+first pass") rather than clicking through it by hand.
+
+### 13a. New environment variables (Xano workspace settings)
+
+Add `FOXIT_ESIGN_API_KEY` and `FOXIT_ESIGN_API_SECRET` as Xano
+environment variables (same values as `.env`'s `FOXIT_ESIGN_API_KEY`/
+`FOXIT_ESIGN_API_SECRET`) — needed by 13c below.
+
+### 13b. `POST /warrants/attach-envelope` — NEW endpoint
+
+Called by `apps/web` right after `/api/documents/prepare` succeeds
+(step 1, done outside Xano). Stores the real envelope reference so
+step 2 (13c) can verify against it.
+
+- **Auth:** Private (bearer token; approver/security_admin only, same
+  RBAC as §9b's `signed`/`active` transitions).
+- **Input:** `warrant_id`, `document_id` (Doctavian), `document_hash`
+  (SHA-256 of the real generated PDF bytes — computed server-side by
+  our own Next.js route, NOT client input in the untrusted sense: it's
+  the same trust boundary as the rest of this app's server), `folder_id`
+  (Foxit), `signing_url` (nullable).
+- **Function Stack:** fetch `warrants` by `warrant_id` (404 if
+  missing) → precondition `status == "pending_approval"` and
+  `used == false` (else `400 invalid_state`) → update the row:
+  `document_id`, `document_hash` (overwrite the placeholder from §9a
+  step 5 with the real one), `foxit_folder_id`, `foxit_signing_url` →
+  return the updated warrant. **Does not change `status`** — the
+  warrant stays `pending_approval` until 13c confirms real signing.
+- **New `warrants` columns needed:** `document_id` (text, nullable),
+  `foxit_folder_id` (text, nullable), `foxit_signing_url` (text,
+  nullable) — add these alongside the existing `document_hash`/
+  `approver_email` columns from §9a.
+
+### 13c. `POST /warrants/confirm-signature` — NEW endpoint, replaces client-trusted `envelope_status` for this path
+
+This is the actual fix to §9b's biggest weakness: `envelope_status` in
+`/warrants/transition` was always a **client-supplied** field — nothing
+stopped a client from just claiming `"EXECUTED"`. This endpoint checks
+the real thing instead.
+
+- **Auth:** Private, same RBAC as §9b.
+- **Input:** `warrant_id`, `folder_id` (defense-in-depth: must match
+  the warrant's stored `foxit_folder_id`, else `400 folder_mismatch` —
+  catches a client confirming the wrong warrant).
+- **Function Stack:**
+  1. Fetch `warrants` by `warrant_id` (404 if missing).
+  2. `warrants.used == true` → **403** `{error: "replay_rejected",
+     warrant_id}`, same as §9b step 1 — stop, no audit entry.
+  3. `folder_id != warrants.foxit_folder_id` → `400
+     {error: "folder_mismatch"}`.
+  4. **External API Request** (real Xano-Foxit integration, this is
+     the piece that makes this a genuine Foxit-track feature, not a
+     UI mockup): `GET https://na1.fusion.foxit.com/esign/api/v1/folders/myfolder?folderId={folder_id}`,
+     headers `client_id`/`client_secret` from the env vars in 13a. See
+     `foxit_client.py`'s `get_envelope_details()` docstring for the
+     exact confirmed request shape.
+  5. **UNVERIFIED — confirm the real field name on first run** (flag
+     this honestly if it's wrong, don't guess-and-move-on): read the
+     envelope's completion status from the response. Treat it as
+     signed only if the status clearly indicates every party finished
+     signing (Foxit's own terminology — likely something like
+     `"COMPLETED"` or `"EXECUTED"` at the folder level, not just "sent"
+     or "in progress"). If not yet signed → `400
+     {error: "envelope_not_executed", envelope_status: <whatever the
+     real field held>}` — this is the expected response right after
+     `/attach-envelope` and before the approver has actually clicked
+     through Foxit's signing page, so the frontend treats it as
+     "try again after you've signed," not a hard failure.
+  6. Only if 2-3-5 pass: `validate_transition()` (existing function,
+     `pending_approval -> active` — reuse the exact same call §9b's
+     step 4 makes) → compute `expires_at` → update `warrants`
+     (`used=true`, `status="active"`, `expires_at`) →
+     `append_audit_log(event="signed_and_activated", actor=<the
+     approver's email from $authenticated_user>)`.
+  7. Return the updated warrant, same shape §9b returns.
+
+`document_hash`/`signer_email` checks from §9b step 3 are intentionally
+NOT repeated here — `document_hash` was already fixed to the real value
+in 13b, and the signer is whoever's authenticated bearer token called
+this endpoint, not a client-supplied string.
+
+### 13d. Embedded signing (not a new tab)
+
+`createEmbeddedSigningSession: true` (in `foxitClient.ts`'s
+`createEnvelopeFromBinary()` call) is specifically for this: the
+Approver page renders the returned `signing_url` in an inline
+`<iframe>` on the same page ("web in web"), not a link that opens a
+new tab. Whether Foxit's embedded-signing URL actually permits being
+framed (X-Frame-Options/CSP) is UNVERIFIED — first thing to check if
+the iframe shows blank.
+
+### 13e. `apps/web` wiring (already built, 2026-08-29)
+
+`lib/apiClient.ts`: `prepareSignature()` calls `/api/documents/prepare`
+(this app's own route, not Xano — the binary pass-through) → on success
+`attachEnvelope()` immediately calls Xano's 13b to store the real
+`folder_id`/`document_hash` → `confirmSignature()` calls Xano's 13c to
+verify the real envelope status and activate. The Approver page's
+`handlePrepare()` chains the first two calls in one click; a separate
+"I've signed — confirm" button calls `confirmSignature()` after the
+approver actually finishes signing at Foxit's `signing_url`. All three
+Xano-side calls (13b, 13c) will 404 until you build them — same
+honest-failure pattern as §9a/§9b before they existed.

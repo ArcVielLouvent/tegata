@@ -385,3 +385,129 @@ via GitHub Actions on `phase/6-frontend-demo` or `main` — the sandbox
 curl smoke test proves the mock backend and build are sound, but
 only CI can run actual Chromium against actual Playwright assertions
 here.
+
+## Hybrid real-signing pipeline (Doctavian + Foxit + Xano) — built 2026-08-29
+
+Following up on the CI fix and ticket_ref fix above: built the real
+signing pipeline for `required_approver_count === 1`, as a deliberate
+**hybrid** so all three sponsor integrations (Xano, Foxit, Doctavian)
+are genuinely used, not just one:
+
+- **`apps/web/app/api/documents/prepare/route.ts`** (Node.js runtime) —
+  orchestrates the one step that's a binary pass-through between two
+  external APIs (Doctavian generates a doc -> download bytes -> upload
+  those bytes to Foxit as an envelope) — not practical as a Xano
+  Function Stack step, which is built for JSON in/out.
+  `lib/doctavianClient.ts` and `lib/foxitClient.ts` are server-only TS
+  ports of `doctavian_client.py`/`foxit_client.py` (same endpoints,
+  same header shapes — copied, not re-derived).
+- **Xano stays the source of truth and does the actual verification**:
+  `docs/xano-setup.md` §13 specs two new endpoints for Xano's AI agent
+  to build — `/warrants/attach-envelope` (stores the real
+  `document_id`/`document_hash`/`foxit_folder_id` right after step 1)
+  and `/warrants/confirm-signature` (calls Foxit's real
+  `GET /folders/myfolder` **from Xano itself**, server-to-server, and
+  only activates the warrant if Foxit's real status says fully signed
+  — replacing the old `/warrants/transition` shortcut that just
+  trusted a client-supplied `envelope_status` string). NOT YET BUILT
+  in the actual Xano workspace — this is a spec for Armand to feed to
+  Xano's AI agent next.
+- **Approver page**: pending_approval + required_approver_count===1 in
+  xano mode now shows "Prepare & send for e-signature" ->
+  `prepareSignature()` + `attachEnvelope()` in one click -> an inline
+  `<iframe>` embedding Foxit's real embedded-signing URL ("web in web",
+  not a new-tab link — `createEmbeddedSigningSession: true`) -> "I've
+  signed — confirm" -> `confirmSignature()`. `signWarrant()` (the old
+  client-trusted shortcut) is now the fallback ONLY for
+  `required_approver_count === 2`, which this pipeline doesn't cover
+  yet.
+- Mock mode is completely untouched — smoke-tested end to end after
+  every change in this session, still 200/201 throughout.
+
+**Explicitly UNVERIFIED (flagged in code comments, not silently
+assumed) — first things to check on the first real run, once
+DOCTAVIAN_ACCESS_TOKEN/FOXIT_ESIGN_* are set in `apps/web/.env.local`
+and §13's two Xano endpoints exist:**
+1. Whether Doctavian's `generate_document` actually honors
+   `documentFileFormat: "pdf"` from a `.docx` template.
+2. The real field name holding the embedded signing URL in Foxit's
+   `create_envelope_from_binary` response (`extractSigningUrl()` in
+   `foxitClient.ts` guesses several plausible keys).
+3. The signature-field pixel position (`x: 100, y: 650` — a guess,
+   never checked against a real generated envelope).
+4. Whether Foxit's embedded-signing URL permits being framed in an
+   `<iframe>` at all (X-Frame-Options/CSP).
+5. The real field name for "fully executed" in
+   `get_envelope_details`'s response (§13c step 5) — this one Xano's
+   AI agent will hit first, since it's the endpoint that has to be
+   built from scratch rather than ported from working Python.
+
+**Next session priorities, in order:** (1) feed docs/xano-setup.md
+§13 to Xano's AI agent, build the two endpoints; (2) set real
+DOCTAVIAN_ACCESS_TOKEN + FOXIT_ESIGN_* in apps/web/.env.local and run
+the Requester -> Approver flow for real, once, to resolve the 5
+UNVERIFIED items above; (3) only then decide whether
+`required_approver_count === 2` gets a real Foxit sequential-signing
+flow too, or stays on the `signWarrant()` shortcut for the rest of the
+hackathon (time-box this — Sept 3 is close).
+
+## Phase 4 NLU front-door wired into the demo UI (2026-08-29)
+
+Following the hybrid signing pipeline above: ported
+`nlu_frontdoor.py` + `llm_client.py` to TS
+(`lib/nluFrontdoor.ts`, `lib/llmClient.ts`) and wired them into a new
+`POST /api/nlu/parse` route. Unlike the Doctavian/Foxit pipeline, this
+one stayed entirely in Next.js — it's pure LLM-call + validation logic
+with no persistent state and no binary pass-through, so there's no
+Xano-specific reason to spec a Function Stack for it (§13's split was
+specifically about binary data; this has none).
+
+- Requester page (`app/page.tsx`) now has a free-text box above the
+  form ("Describe what you need") -> "Fill form from description" ->
+  calls `/api/nlu/parse` -> fills `resource`/`reason`/
+  `requested_duration_minutes`/`ticket_ref` into the existing form
+  fields. Nothing is submitted automatically — the user still has to
+  review and click "Submit request" themselves, same "AI proposes,
+  system decides" principle as the Python original's docstring. If
+  the LLM's self-check pass flags a concern (e.g. suspected prompt
+  injection asking for unlimited access), it's shown as a visible
+  warning banner rather than silently swallowed.
+- Hard validation gate (`validateAndBuildRequest` in
+  `nluFrontdoor.ts`) is a straight port of the Python gate: resource
+  must be in the same whitelist `referenceLogic.ts` already uses for
+  mock-mode scoring (`RESOURCE_SENSITIVITY`'s keys) — deterministic,
+  no LLM involved, rejects regardless of what either LLM pass
+  concluded.
+- Fallback chain ported 1:1 from `llm_client.py`: 2 Gemini -> 2 Groq ->
+  2 OpenRouter models, same model names (same UNVERIFIED flag carried
+  over on `gemini-3.6-flash-lite` — never independently confirmed in
+  the Python original either).
+
+Verified: tsc --noEmit clean, next build clean (new
+`/api/nlu/parse` route shows up in the build output), smoke-tested
+both error paths (`config_error` with no provider key set,
+`validation_failed` with no `text`) — can't smoke-test an actual LLM
+call from this sandbox (no network access to Gemini/Groq/OpenRouter).
+Mock mode re-confirmed unaffected. Full Python regression 137/137,
+ruff clean.
+
+**Still UNVERIFIED, same reason as the signing pipeline (no network
+access to the real providers from this sandbox):** the actual Gemini/
+Groq/OpenRouter response shapes this file assumes
+(`data.candidates[0].content.parts[...].text` for Gemini,
+`data.choices[0].message.content` for Groq/OpenRouter — these are the
+standard documented shapes for each API, not independently tested
+here). Set GEMINI_API_KEY/GROQ_API_KEY/OPENROUTER_API_KEY in
+`apps/web/.env.local` and try a real free-text request as the next
+concrete verification step, same session as the signing pipeline's 5
+UNVERIFIED items.
+
+**All of Phase 0-5's systems are now wired into `apps/web` in some
+form** (risk engine: mock mode's own scoring + Xano's `/score`;
+Doctavian+Foxit: `/api/documents/prepare` + Xano §13; auto-expire:
+already in `state_machine.py`/mock's `ttl.py` port; NLU front-door:
+this). What's left is verification against the real external services
+(Xano AI's two endpoints, Doctavian, Foxit, and now the LLM
+providers) — none of it is buildable further from this sandbox
+without real network access, so the next session's job is running
+these live, not writing more code blind.

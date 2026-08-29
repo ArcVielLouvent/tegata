@@ -35,6 +35,18 @@
  *     call to "active" succeeds — it cannot show "1 of 2 signed" the way
  *     mock mode's simulated flow does. Treat xano-mode testing as a
  *     single-approver-envelope smoke test until this is revisited.
+ *
+ * REAL SIGNING PIPELINE (added 2026-08-29, required_approver_count === 1
+ * only so far): prepareSignature() -> confirmSignature(), see their own
+ * docs below. signWarrant() above is now the LEGACY fallback for
+ * everything that path doesn't cover yet (2-approver case). This is a
+ * deliberate hybrid: the Doctavian-generate -> Foxit-envelope binary
+ * pass-through runs in this app's own /api/documents/prepare (Node.js
+ * runtime handles binary data trivially; Xano's Function Stack External
+ * API Request steps are built for JSON), while Xano remains the source
+ * of truth for warrant state and is the one that verifies the real
+ * Foxit envelope status server-to-server (see docs/xano-setup.md §13)
+ * — not something this client is trusted to self-report.
  */
 import type { AccessRequest } from "@tegata/schema";
 import type { MockWarrant } from "./mockStore";
@@ -166,7 +178,16 @@ export async function createWarrant(accessRequest: AccessRequest): Promise<{ war
   // persist the warrant itself (contrary to this file's earlier
   // assumption of a separate POST /warrants endpoint).
   const path = MODE === "mock" ? "/warrants" : "/score";
-  const result = await request<{ warrant: any }>(path, { method: "POST", body: JSON.stringify(accessRequest) });
+  // ticket_ref is optional in our own schema (AccessRequestSchema), but
+  // Xano's live /score input declares it required (confirmed 2026-08-28:
+  // an omitted ticket_ref fails with "Missing param: ticket_ref"). Since
+  // it's optional, JSON.stringify() silently drops it when undefined —
+  // so send it explicitly as "" rather than omitting the key. Harmless
+  // in mock mode, where the mock /warrants route already treats it as
+  // optional and ignores an empty string the same way it ignores a
+  // missing key.
+  const body = { ...accessRequest, ticket_ref: accessRequest.ticket_ref ?? "" };
+  const result = await request<{ warrant: any }>(path, { method: "POST", body: JSON.stringify(body) });
   return { warrant: normalizeWarrant(result.warrant) };
 }
 
@@ -179,16 +200,12 @@ export async function signWarrant(warrantId: string, signerEmail: string): Promi
     return { warrant: normalizeWarrant(result.warrant) };
   }
 
-  // Real Xano: POST /warrants/transition, confirmed 2026-08-28. The
-  // signature-verification path (to_status="active") checks
-  // returned_document_hash against warrants.document_hash — in the
-  // absence of a real Foxit round-trip wired into this UI yet, we fetch
-  // the warrant's own document_hash first and send it back unchanged
-  // (i.e. "no tampering occurred"), and hardcode envelope_status
-  // "EXECUTED" (i.e. "assume Foxit already reports this envelope fully
-  // signed"). This is a manual/smoke-test shortcut, not a real signing
-  // flow — Phase 3's foxit_client.py is the real integration; this UI
-  // doesn't call it yet.
+  // Real Xano, LEGACY PATH: POST /warrants/transition with a
+  // client-supplied envelope_status. Kept only as a fallback for
+  // warrants that were never run through prepareSignature() (e.g.
+  // required_approver_count === 2, not wired to real Foxit yet — see
+  // prepareSignature's module docs). Prefer confirmSignature() below
+  // for any warrant that has a real folder_id from prepareSignature().
   const { warrant: current } = await getWarrant(warrantId);
   const result = await request<{ warrant: any }>("/warrants/transition", {
     method: "POST",
@@ -199,6 +216,71 @@ export async function signWarrant(warrantId: string, signerEmail: string): Promi
       returned_document_hash: current.document_hash,
       signer_email: signerEmail,
     }),
+  });
+  return { warrant: normalizeWarrant(result.warrant) };
+}
+
+/** Step 1 of the real-signing pipeline: generate the warrant document
+ * (Doctavian) and create a Foxit signing envelope from it, via this
+ * app's own /api/documents/prepare route (the binary-pass-through step
+ * — see that route's module docs for why it isn't a Xano Function
+ * Stack step). Only meaningful in xano mode; not called in mock mode.
+ * Only supports required_approver_count === 1 so far. */
+export async function prepareSignature(warrant: MockWarrant, approver: { name: string; email: string }): Promise<{ document_id: string; document_hash: string; folder_id: string | number | null; signing_url: string | null }> {
+  const res = await fetch("/api/documents/prepare", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      warrant_id: warrant.warrant_id,
+      resource: warrant.request.resource,
+      requested_by: warrant.request.requested_by,
+      reason: warrant.request.reason,
+      requested_duration_minutes: warrant.request.requested_duration_minutes,
+      risk_score: warrant.risk_score.score,
+      risk_tier: warrant.risk_score.tier,
+      factors: warrant.risk_score.factors,
+      approval_requirement: warrant.approval_requirement,
+      approver,
+    }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(res.status, body);
+  return body;
+}
+
+/** Immediately follows prepareSignature(): tells Xano about the real
+ * envelope so confirmSignature() has something to verify against (see
+ * docs/xano-setup.md §13b). Requires that Xano-side endpoint to exist;
+ * until it's built this returns the same 404 pattern §9a/§9b did
+ * before they existed. */
+export async function attachEnvelope(
+  warrantId: string,
+  envelope: { document_id: string; document_hash: string; folder_id: string | number | null; signing_url: string | null }
+): Promise<{ warrant: MockWarrant }> {
+  const result = await request<{ warrant: any }>("/warrants/attach-envelope", {
+    method: "POST",
+    body: JSON.stringify({
+      warrant_id: warrantId,
+      document_id: envelope.document_id,
+      document_hash: envelope.document_hash,
+      folder_id: envelope.folder_id,
+      signing_url: envelope.signing_url,
+    }),
+  });
+  return { warrant: normalizeWarrant(result.warrant) };
+}
+
+/** Step 2, once the approver has actually signed at the Foxit signing_url
+ * from prepareSignature(): asks Xano to verify the REAL envelope status
+ * with Foxit itself (server-to-server, via the folder_id attached in
+ * step 1) rather than trusting whatever this client claims — see
+ * docs/xano-setup.md §13. Requires that Xano-side endpoint to exist;
+ * until it's built this returns the same 404 pattern §9a/§9b did before
+ * they existed. */
+export async function confirmSignature(warrantId: string, folderId: string | number): Promise<{ warrant: MockWarrant }> {
+  const result = await request<{ warrant: any }>("/warrants/confirm-signature", {
+    method: "POST",
+    body: JSON.stringify({ warrant_id: warrantId, folder_id: folderId }),
   });
   return { warrant: normalizeWarrant(result.warrant) };
 }
