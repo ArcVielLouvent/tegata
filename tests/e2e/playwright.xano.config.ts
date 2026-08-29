@@ -39,11 +39,13 @@ export default defineConfig({
   use: {
     baseURL: "http://localhost:3000",
     trace: "retain-on-failure",
+    navigationTimeout: 60_000, // generous for slower hardware — a real hang will still exceed this
+    actionTimeout: 30_000,
   },
   expect: {
-    timeout: 15_000, // real network round-trips to Xano, not the in-process mock
+    timeout: 20_000, // real network round-trips to Xano, not the in-process mock
   },
-  timeout: 60_000, // whole-test timeout, generous for a multi-step real-network flow
+  timeout: 180_000, // whole-test timeout — raised from 60s: on slower hardware, launching Chromium + a real signup request + several real Xano round-trips can genuinely take a while on its own, separate from any actual bug
   webServer: {
     command: "npm run build && npm run start",
     cwd: path.resolve(__dirname, "../../apps/web"),
