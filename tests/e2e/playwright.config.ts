@@ -27,16 +27,16 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0, // safety margin for CI runner variance, not a substitute for the fix above
   reporter: [["list"]],
   use: {
-    baseURL: "http://localhost:3100",
+    baseURL: "http://localhost:3000",
     trace: "retain-on-failure",
   },
   expect: {
     timeout: 8_000, // slightly above the 5s default — CI runners are slower than a local machine
   },
   webServer: {
-    command: "npm run build && npm run start -- -p 3100",
+    command: "npm run build && npm run start",
     cwd: path.resolve(__dirname, "../../apps/web"),
-    url: "http://localhost:3100",
+    url: "http://localhost:3000",
     reuseExistingServer: !process.env.CI,
     timeout: 180_000, // build (~40s measured) + server start, with headroom for a slow CI runner
     env: { NEXT_PUBLIC_API_MODE: "mock" },

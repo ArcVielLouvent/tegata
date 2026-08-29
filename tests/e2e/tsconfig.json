@@ -9,5 +9,5 @@
     "noEmit": true,
     "types": ["node", "@playwright/test"]
   },
-  "include": ["*.ts"]
+  "include": ["*.ts", "xano/*.ts"]
 }

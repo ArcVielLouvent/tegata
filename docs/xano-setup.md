@@ -411,15 +411,28 @@ Confirmed against the real Function Stacks:
 - `GET /auth/me` — Private, needs `Authorization: Bearer <token>`.
   Returns the user record for that token.
 
-**Important gap, not a bug:** there is no `role` input on `/auth/signup`
-— every new user gets whatever the `user` table's default is
-(confirmed: `requester`). There is **no self-service way to become an
-approver or security_admin** — Armand assigns those manually by editing
-the user's row in Xano's Database tab. This is an intentional
-hackathon-scope simplification; a production version would need an
-invite/assignment flow. `apps/web`'s auth wiring (`lib/auth.ts`,
-`lib/AuthContext.tsx`) matches this contract exactly — it does not
-attempt to pass or request a role at signup.
+**Update (needed for automated e2e testing — added after the note
+below):** `POST /auth/signup` was given an OPTIONAL `role` input,
+restricted to exactly `"requester"` or `"approver"` — any other value
+(including `"security_admin"`, and anything malformed) is silently
+ignored and falls back to the table's default (`requester`). This is a
+**testing/demo convenience for the hackathon, not a production security
+decision** — a real deployment would need a proper invite/assignment
+flow instead. Critically, `apps/web`'s login/register FORM never sends
+this field — a real user clicking through the UI still has no way to
+self-assign a role, preserving the actual security property this
+project cares about. Only `tests/e2e/xano/full-flow.spec.ts` uses it,
+calling the endpoint directly over HTTP (bypassing the browser/UI
+entirely) to create a throwaway approver account fresh on every test
+run, so the e2e suite needs no persistent test account and no manual
+Xano setup.
+
+**Original note (still true for the human-facing app, superseded above
+only for direct API calls used by test automation):** there is no
+self-service way to become an approver or security_admin *through the
+UI*. `security_admin` specifically can still only be set manually by
+editing the user's row in Xano's Database tab — the optional `role`
+input above deliberately never allows that value.
 
 ---
 
