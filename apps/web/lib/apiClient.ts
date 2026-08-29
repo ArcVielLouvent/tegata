@@ -186,9 +186,22 @@ export async function listWarrants(): Promise<{ warrants: MockWarrant[] }> {
 }
 
 export async function getWarrant(warrantId: string): Promise<{ warrant: MockWarrant }> {
-  const path = MODE === "mock" ? `/warrants/${warrantId}` : `/warrants/${warrantId}`;
-  const result = await request<{ warrant: any }>(path, { method: "GET" });
-  return { warrant: normalizeWarrant(result.warrant) };
+  if (MODE === "mock") {
+    const result = await request<{ warrant: any }>(`/warrants/${warrantId}`, { method: "GET" });
+    return { warrant: normalizeWarrant(result.warrant) };
+  }
+  // Xano only ever confirmed a LIST endpoint (GET /warrants) — a
+  // single-record GET /warrants/{warrant_id} by path param was never
+  // actually verified to exist and likely doesn't (docs/xano-setup.md
+  // never mentions one). This used to assume it did, which would 404
+  // for both signWarrant()'s legacy path and the audit trail page.
+  // Fetch the list (already confirmed working) and filter client-side.
+  const { warrants } = await listWarrants();
+  const warrant = warrants.find((w) => w.warrant_id === warrantId);
+  if (!warrant) {
+    throw new ApiError(404, { error: "not_found", message: `No warrant with id ${warrantId}` });
+  }
+  return { warrant };
 }
 
 export async function createWarrant(accessRequest: AccessRequest): Promise<{ warrant: MockWarrant }> {
