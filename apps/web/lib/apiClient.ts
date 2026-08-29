@@ -166,7 +166,16 @@ export async function createWarrant(accessRequest: AccessRequest): Promise<{ war
   // persist the warrant itself (contrary to this file's earlier
   // assumption of a separate POST /warrants endpoint).
   const path = MODE === "mock" ? "/warrants" : "/score";
-  const result = await request<{ warrant: any }>(path, { method: "POST", body: JSON.stringify(accessRequest) });
+  // ticket_ref is optional in our own schema (AccessRequestSchema), but
+  // Xano's live /score input declares it required (confirmed 2026-08-28:
+  // an omitted ticket_ref fails with "Missing param: ticket_ref"). Since
+  // it's optional, JSON.stringify() silently drops it when undefined —
+  // so send it explicitly as "" rather than omitting the key. Harmless
+  // in mock mode, where the mock /warrants route already treats it as
+  // optional and ignores an empty string the same way it ignores a
+  // missing key.
+  const body = { ...accessRequest, ticket_ref: accessRequest.ticket_ref ?? "" };
+  const result = await request<{ warrant: any }>(path, { method: "POST", body: JSON.stringify(body) });
   return { warrant: normalizeWarrant(result.warrant) };
 }
 

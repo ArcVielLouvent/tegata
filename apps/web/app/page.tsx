@@ -20,6 +20,7 @@ export default function RequesterPage() {
   const [resource, setResource] = useState(RESOURCES[0]);
   const [reason, setReason] = useState("");
   const [duration, setDuration] = useState(60);
+  const [ticketRef, setTicketRef] = useState("");
   const [requestedBy, setRequestedBy] = useState("requester@example.com");
   const [warrant, setWarrant] = useState<MockWarrant | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +50,7 @@ export default function RequesterPage() {
         resource,
         reason,
         requested_duration_minutes: Number(duration),
+        ticket_ref: ticketRef || undefined,
         requested_by: effectiveRequestedBy || undefined,
       });
       setWarrant(warrant);
@@ -97,6 +99,16 @@ export default function RequesterPage() {
           value={duration}
           onChange={(e) => setDuration(Number(e.target.value))}
           data-testid="duration-input"
+        />
+
+        <label htmlFor="ticketRef">Ticket reference (optional)</label>
+        <input
+          id="ticketRef"
+          type="text"
+          value={ticketRef}
+          onChange={(e) => setTicketRef(e.target.value)}
+          placeholder="e.g. JIRA-1234"
+          data-testid="ticket-ref-input"
         />
 
         {apiMode() === "xano" ? (
