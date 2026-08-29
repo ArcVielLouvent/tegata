@@ -209,20 +209,34 @@ function unwrapWarrant(result: any): any {
 
 /** Same idea as unwrapWarrant() but for the LIST endpoint — tries
  * `{warrants: [...]}`, `{data: [...]}`, `{items: [...]}`, or the
- * response being a bare array already. */
-function unwrapWarrantList(result: any): any[] {
+ * response being a bare array already. Returns undefined (not []) when
+ * nothing plausible matches — a genuinely empty list IS one of the
+ * matched shapes (e.g. bare `[]`, `{warrants: []}`), so this can tell
+ * "no warrants yet" apart from "wrong shape entirely", unlike the
+ * previous version which silently returned [] for both. Confirmed
+ * 2026-08-29: that silent-[] fallback is why a warrant that really did
+ * get created in Xano never showed up on the Approver page for either
+ * account — no error, no warrant, nothing to go on. */
+function unwrapWarrantList(result: any): any[] | undefined {
   if (Array.isArray(result)) return result;
-  if (!result || typeof result !== "object") return [];
+  if (!result || typeof result !== "object") return undefined;
   if (Array.isArray(result.warrants)) return result.warrants;
   if (Array.isArray(result.data)) return result.data;
   if (Array.isArray(result.items)) return result.items;
-  return [];
+  return undefined;
 }
 
 export async function listWarrants(): Promise<{ warrants: MockWarrant[] }> {
   const result = await request<any>("/warrants", { method: "GET" });
   if (MODE === "mock") return { warrants: (result.warrants || []).map(normalizeWarrant) };
-  return { warrants: unwrapWarrantList(result).map(normalizeWarrant) };
+  const list = unwrapWarrantList(result);
+  if (list === undefined) {
+    throw new ApiError(0, {
+      error: "unrecognized_response_shape",
+      message: `GET /warrants returned a shape unwrapWarrantList() doesn't recognize: ${JSON.stringify(result)}. Fix unwrapWarrantList()'s key list in apiClient.ts to match, once you know the real key name.`,
+    });
+  }
+  return { warrants: list.map(normalizeWarrant) };
 }
 
 export async function getWarrant(warrantId: string): Promise<{ warrant: MockWarrant }> {
