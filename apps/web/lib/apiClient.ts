@@ -104,15 +104,33 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (MODE === "xano" && !base) {
     throw new ApiError(0, { error: "config_error", message: "NEXT_PUBLIC_XANO_API_BASE_URL is not set" });
   }
-  const res = await fetch(`${base}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(MODE === "xano" && authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-      ...(init?.headers || {}),
-    },
-    cache: "no-store",
-  });
+  const url = `${base}${path}`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(MODE === "xano" && authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        ...(init?.headers || {}),
+      },
+      cache: "no-store",
+    });
+  } catch (err) {
+    // fetch() throws a bare TypeError (not an HTTP error — no response
+    // was ever received) for: a malformed base URL, DNS/connection
+    // failure, or a CORS rejection. All three look identical to the
+    // browser, so this can't pinpoint which one — but "TypeError:
+    // Failed to fetch" with no other context (what we used to just
+    // let propagate) is useless to debug from. Surface the actual URL
+    // that was attempted so the message is at least actionable: check
+    // that URL for typos/missing scheme first, then Xano's workspace
+    // CORS settings if the URL looks right.
+    throw new ApiError(0, {
+      error: "network_error",
+      message: `Could not reach ${url} — no response was received at all (not a 4xx/5xx from Xano). Most likely causes: NEXT_PUBLIC_XANO_API_BASE_URL is wrong/malformed (check apps/web/.env.local — did the dev server get restarted after setting it? NEXT_PUBLIC_ vars are baked in at server start, not hot-reloaded), or Xano's workspace CORS settings don't allow this origin. Underlying error: ${err instanceof Error ? err.message : String(err)}`,
+    });
+  }
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(res.status, body);
   return body as T;
