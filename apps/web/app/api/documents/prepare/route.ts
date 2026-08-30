@@ -137,7 +137,30 @@ export async function POST(req: NextRequest) {
       sendNow: true,
       createEmbeddedSigningSession: true,
     });
-    const folderId = envelope.folderId ?? envelope.result?.folderId ?? envelope.id ?? null;
+    const folderId =
+      envelope.folderId ??
+      envelope.folder_id ??
+      envelope.result?.folderId ??
+      envelope.result?.folder_id ??
+      envelope.data?.folderId ??
+      envelope.data?.folder_id ??
+      envelope.id ??
+      null;
+    if (folderId === null || folderId === undefined) {
+      // Fail HERE, loudly, with the raw response — instead of silently
+      // sending folder_id: null downstream to Xano's attach-envelope,
+      // which surfaces as a confusing generic "Missing param: folder_id"
+      // that looks like a Xano problem when it's really this extraction
+      // guessing wrong about Foxit's actual response shape.
+      return NextResponse.json(
+        {
+          error: "folder_id_extraction_failed",
+          message: `Foxit's createfolder call succeeded, but none of the guessed key names (folderId, folder_id, result.folderId, result.folder_id, data.folderId, data.folder_id, id) matched anything in the response. See raw_envelope below for the actual shape — find the real key and add it to prepare/route.ts's folderId extraction.`,
+          raw_envelope: envelope,
+        },
+        { status: 502 }
+      );
+    }
     const signingUrl = extractSigningUrl(envelope);
 
     return NextResponse.json({
