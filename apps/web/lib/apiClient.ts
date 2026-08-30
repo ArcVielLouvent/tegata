@@ -143,6 +143,23 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
  * Throws a diagnostic ApiError (not a cryptic TypeError) if `raw` itself
  * is missing — see unwrapWarrant() below, which is what actually finds
  * `raw` in the first place. */
+/** Confirmed VERBATIM response shape for a single warrant from real
+ * Xano (2026-08-29, via Xano's own dev pasting the actual JSON — not a
+ * guess this time):
+ *   { id, warrant_id, request_id, risk_score (a plain number, NOT
+ *     nested), risk_tier, factor_resource_sensitivity, factor_duration,
+ *     factor_time_of_day, factor_requester_history,
+ *     required_approver_count, max_duration_minutes, status, used,
+ *     document_url, document_hash, approver_email,
+ *     created_at (epoch milliseconds, NOT an ISO string),
+ *     expires_at (epoch milliseconds or null) }
+ *
+ * CONFIRMED GAP, not a frontend bug: resource/reason/requested_by are
+ * NOT in this response at all — they live in the `requests` table and
+ * Xano's GET /warrants doesn't join/eval them in. Until that's added
+ * Xano-side, these three fields are unavoidably blank here — the
+ * fallback below to "" is correct given what the API actually returns,
+ * not a mapping bug to fix on this side. */
 function normalizeWarrant(raw: any): MockWarrant {
   if (MODE === "mock") return raw as MockWarrant;
   if (!raw || typeof raw !== "object") {
@@ -152,10 +169,18 @@ function normalizeWarrant(raw: any): MockWarrant {
     });
   }
 
-  const score = raw.risk_score?.score ?? raw.risk_score ?? raw.score ?? 0;
-  const tier = raw.risk_score?.tier ?? raw.risk_tier ?? raw.tier ?? "low";
-  const requiredApprovers = raw.approval_requirement?.required_approver_count ?? raw.required_approver_count ?? 1;
-  const maxDuration = raw.approval_requirement?.max_duration_minutes ?? raw.max_duration_minutes ?? raw.requested_duration_minutes ?? 0;
+  const score = typeof raw.risk_score === "number" ? raw.risk_score : (raw.risk_score?.score ?? 0);
+  const tier = raw.risk_tier ?? raw.risk_score?.tier ?? "low";
+  const requiredApprovers = raw.required_approver_count ?? 1;
+  const maxDuration = raw.max_duration_minutes ?? raw.requested_duration_minutes ?? 0;
+
+  // Epoch milliseconds -> ISO string, since MockWarrant's type (and
+  // everything that renders it) expects a string, not a raw number.
+  const toIsoOrNull = (v: unknown): string | null => {
+    if (v === null || v === undefined) return null;
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? new Date(n).toISOString() : null;
+  };
 
   return {
     warrant_id: raw.warrant_id ?? raw.id,
@@ -168,7 +193,12 @@ function normalizeWarrant(raw: any): MockWarrant {
     risk_score: {
       score,
       tier,
-      factors: raw.risk_score?.factors ?? { resource_sensitivity: 0, duration_factor: 0, time_of_day_factor: 0, requester_history_factor: 0 },
+      factors: {
+        resource_sensitivity: raw.factor_resource_sensitivity ?? 0,
+        duration_factor: raw.factor_duration ?? 0,
+        time_of_day_factor: raw.factor_time_of_day ?? 0,
+        requester_history_factor: raw.factor_requester_history ?? 0,
+      },
     },
     approval_requirement: {
       required_approver_count: requiredApprovers,
@@ -182,10 +212,10 @@ function normalizeWarrant(raw: any): MockWarrant {
     // status is "active" we can only infer "fully signed", not a running
     // count, so we report it as fully satisfied rather than fabricate a
     // count we don't have.
-    signatures: raw.status === "active" ? [{ email: raw.approver_email ?? "unknown", signed_at: raw.updated_at ?? new Date().toISOString() }] : [],
-    activated_at: raw.activated_at ?? null,
-    expires_at: raw.expires_at ?? null,
-    created_at: raw.created_at ?? new Date().toISOString(),
+    signatures: raw.status === "active" ? [{ email: raw.approver_email ?? "unknown", signed_at: toIsoOrNull(raw.created_at) ?? new Date().toISOString() }] : [],
+    activated_at: null, // Xano's GET /warrants response has no such field — not used for anything rendered in xano mode, unlike mock mode where it drives computeExpiresAt() locally
+    expires_at: toIsoOrNull(raw.expires_at),
+    created_at: toIsoOrNull(raw.created_at) ?? new Date().toISOString(),
   } as MockWarrant;
 }
 
