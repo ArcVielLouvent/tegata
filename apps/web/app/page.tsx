@@ -104,6 +104,7 @@ export default function RequesterPage() {
 
   return (
     <>
+      <span className="role-chip">this is your request queue, not the approver's</span>
       <h1>Request privileged access</h1>
       <p className="subtitle">
         Mode: <span className="mono">{apiMode()}</span> — the request is scored the instant you submit it; the
@@ -206,26 +207,60 @@ export default function RequesterPage() {
       )}
 
       {warrant && (
-        <div className="card" data-testid="warrant-result" style={{ marginTop: "1.5rem" }}>
-          <div className="row">
-            <strong className="mono">{warrant.warrant_id}</strong>
-            <span className={`badge ${warrant.risk_score.tier}`} data-testid="risk-tier-badge">
-              {warrant.risk_score.tier} risk — score {warrant.risk_score.score}
-            </span>
-            <span className="badge status">{warrant.status}</span>
+        <div className="card result" data-testid="warrant-result" style={{ marginTop: "1.5rem" }}>
+          <div className="row" style={{ alignItems: "flex-start", gap: "1rem" }}>
+            <div className={`stamp ${warrant.risk_score.tier}`} data-testid="risk-tier-badge">
+              <span className="tier">{warrant.risk_score.tier}</span>
+              <span className="score">{warrant.risk_score.score}/100</span>
+            </div>
+            <div>
+              <strong className="mono">{warrant.warrant_id}</strong>
+              <div className="row" style={{ marginTop: "0.3rem" }}>
+                <span className="badge status">{warrant.status}</span>
+              </div>
+            </div>
           </div>
-          <p style={{ marginBottom: 0 }}>
+          <p style={{ marginBottom: 0, marginTop: "1rem" }}>
             Requires <strong data-testid="required-approver-count">{warrant.approval_requirement.required_approver_count}</strong> approver
             {warrant.approval_requirement.required_approver_count > 1 ? "s" : ""}, capped at{" "}
             <strong>{warrant.approval_requirement.max_duration_minutes} min</strong>
             {warrant.approval_requirement.duration_was_capped ? " (capped down from what you requested)" : ""}.
           </p>
-          <p className="muted" style={{ marginBottom: 0 }}>
-            resource_sensitivity {warrant.risk_score.factors.resource_sensitivity} · duration_factor{" "}
-            {warrant.risk_score.factors.duration_factor} · time_of_day_factor {warrant.risk_score.factors.time_of_day_factor} ·
-            requester_history_factor {warrant.risk_score.factors.requester_history_factor}
-          </p>
-          <p style={{ marginTop: "0.75rem" }}>
+
+          {/* Each factor gets an inline "?" tooltip rather than assuming
+              the person knows what "duration_factor 0.6" means — this
+              number means nothing on its own to a first-time user. */}
+          <div className="factors">
+            <span className="factor" tabIndex={0}>
+              resource {warrant.risk_score.factors.resource_sensitivity}
+              <span className="q">?</span>
+              <span className="tip">Resource sensitivity — how critical this system is. Production databases score high; a read-only wiki scores low.</span>
+            </span>
+            <span className="factor" tabIndex={0}>
+              duration {warrant.risk_score.factors.duration_factor}
+              <span className="q">?</span>
+              <span className="tip">Duration factor — the longer the access window you ask for, the higher this climbs.</span>
+            </span>
+            <span className="factor" tabIndex={0}>
+              time-of-day {warrant.risk_score.factors.time_of_day_factor}
+              <span className="q">?</span>
+              <span className="tip">Time-of-day factor — requests outside working hours score higher, since fewer people are around to notice misuse.</span>
+            </span>
+            <span className="factor" tabIndex={0}>
+              history {warrant.risk_score.factors.requester_history_factor}
+              <span className="q">?</span>
+              <span className="tip">Requester history factor — a clean track record keeps this low; past incidents raise it.</span>
+            </span>
+          </div>
+
+          <div className="banner" style={{ background: "var(--washi-deep)", borderColor: "transparent", color: "var(--sumi-soft)" }}>
+            <strong style={{ color: "var(--sumi)" }}>What happens next:</strong> this tegata now waits on an approver's screen for{" "}
+            {warrant.approval_requirement.required_approver_count} signature
+            {warrant.approval_requirement.required_approver_count > 1 ? "s" : ""}. You'll be notified the moment it's active — you
+            don't need to do anything else here.
+          </div>
+
+          <p style={{ marginTop: "0.75rem", marginBottom: 0 }}>
             <Link href="/approver">Go to Approver view →</Link> ·{" "}
             <Link href={`/audit/${warrant.warrant_id}`}>View audit trail →</Link>
           </p>

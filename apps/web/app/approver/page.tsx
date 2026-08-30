@@ -21,6 +21,12 @@ type Message = { kind: "success" | "error"; text: string; debug?: any };
  * the pending_approval transition existed, per PROJECT_STATUS.md. */
 const ACTIONABLE_STATUSES = new Set(["pending_approval", "signed"]);
 
+/** How many cards to show per section before requiring an explicit
+ * "View more" click. Keeps the page from growing without bound as
+ * warrants pile up — a fixed page of results with a knowable end,
+ * rather than every past request rendered at once. */
+const PAGE_SIZE = 5;
+
 function formatRelativeTime(iso: string | null): string {
   if (!iso) return "";
   const then = new Date(iso).getTime();
@@ -45,6 +51,8 @@ export default function ApproverPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [prepared, setPrepared] = useState<Record<string, PreparedEnvelope>>({});
   const [listError, setListError] = useState<string | null>(null);
+  const [needsActionShown, setNeedsActionShown] = useState(PAGE_SIZE);
+  const [historyShown, setHistoryShown] = useState(PAGE_SIZE);
 
   const needsLogin = apiMode() === "xano" && !authLoading && !token;
   const effectiveSignerEmail = apiMode() === "xano" ? user?.email || signerEmail : signerEmail;
@@ -165,20 +173,30 @@ export default function ApproverPage() {
   const sorted = [...warrants].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
   const needsAction = sorted.filter((w) => ACTIONABLE_STATUSES.has(w.status));
   const history = sorted.filter((w) => !ACTIONABLE_STATUSES.has(w.status));
+  const needsActionVisible = needsAction.slice(0, needsActionShown);
+  const historyVisible = history.slice(0, historyShown);
 
   function renderCard(w: MockWarrant, dimmed: boolean) {
     const msg = messages[w.warrant_id];
     return (
       <div className={`card${dimmed ? " dimmed" : ""}`} key={w.warrant_id} data-testid={`warrant-card-${w.warrant_id}`}>
-        <div className="row" style={{ justifyContent: "space-between" }}>
-          <strong>{w.request.resource || "(resource unknown)"}</strong>
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div className="row" style={{ gap: "0.9rem", alignItems: "center" }}>
+            <div className={`stamp ${w.risk_score.tier}`} style={{ width: 48, height: 48 }}>
+              <span className="tier" style={{ fontSize: "0.62rem" }}>
+                {w.risk_score.tier}
+              </span>
+            </div>
+            <div>
+              <strong>{w.request.resource || "(resource unknown)"}</strong>
+              <p className="muted" style={{ margin: "0.15rem 0 0" }}>
+                {w.request.reason || "(no reason given)"} · requested by {w.request.requested_by || "unknown"}
+              </p>
+            </div>
+          </div>
           <span className="timestamp">{formatRelativeTime(w.created_at)}</span>
         </div>
-        <p className="muted" style={{ margin: "0.15rem 0 0.6rem" }}>
-          {w.request.reason || "(no reason given)"} · requested by {w.request.requested_by || "unknown"}
-        </p>
-        <div className="row" style={{ marginBottom: "0.6rem" }}>
-          <span className={`badge ${w.risk_score.tier}`}>{w.risk_score.tier} risk</span>
+        <div className="row" style={{ margin: "0.7rem 0 0.6rem" }}>
           <span className={`badge status${dimmed ? " muted" : ""}`} data-testid={`warrant-status-${w.warrant_id}`}>
             {w.status}
           </span>
@@ -209,15 +227,22 @@ export default function ApproverPage() {
                   <iframe
                     src={prepared[w.warrant_id].signing_url!}
                     data-testid={`embed-${w.warrant_id}`}
-                    style={{ width: "100%", height: 600, border: "1px solid var(--line)", borderRadius: 8 }}
+                    style={{ width: "100%", height: 520, display: "block" }}
                     title={`Foxit signing session for ${w.warrant_id}`}
                   />
                 ) : (
-                  <p>No embedded signing_url in Foxit's response — check your email for the signing invite instead.</p>
+                  <p style={{ padding: "1.1rem 1.3rem", margin: 0 }}>
+                    No embedded signing_url in Foxit's response — check your email for the signing invite instead.
+                  </p>
                 )}
-                <button type="button" onClick={() => handleConfirm(w.warrant_id)} disabled={busy === w.warrant_id} data-testid={`confirm-${w.warrant_id}`}>
-                  {busy === w.warrant_id ? "Confirming…" : "I've signed — confirm"}
-                </button>
+                <div className="signing-panel-footer">
+                  <p className="note">
+                    Read the document above in full — signing records your e-signature with Foxit and cannot be undone.
+                  </p>
+                  <button type="button" onClick={() => handleConfirm(w.warrant_id)} disabled={busy === w.warrant_id} data-testid={`confirm-${w.warrant_id}`}>
+                    {busy === w.warrant_id ? "Confirming…" : "I've signed — confirm"}
+                  </button>
+                </div>
               </div>
             ) : (
               <button type="button" onClick={() => handlePrepare(w)} disabled={busy === w.warrant_id} data-testid={`prepare-${w.warrant_id}`}>
@@ -243,6 +268,7 @@ export default function ApproverPage() {
 
   return (
     <>
+      <span className="role-chip hanko">this is the approver's screen, not the requester's</span>
       <h1>Approve access requests</h1>
       <p className="subtitle">
         Mode: <span className="mono">{apiMode()}</span> — signing a warrant that requires 2 approvers needs this action
@@ -284,9 +310,16 @@ export default function ApproverPage() {
             <div className="section-heading">
               <span className="kanji-mark">要</span>
               <h2>Needs your action</h2>
-              <span className="count">({needsAction.length})</span>
+              <span className="count">
+                ({needsActionVisible.length} of {needsAction.length} shown)
+              </span>
             </div>
-            {needsAction.map((w) => renderCard(w, false))}
+            {needsActionVisible.map((w) => renderCard(w, false))}
+            {needsActionShown < needsAction.length && (
+              <button type="button" className="view-more" onClick={() => setNeedsActionShown((n) => n + PAGE_SIZE)}>
+                View more ({needsAction.length - needsActionShown} remaining) →
+              </button>
+            )}
           </>
         )}
 
@@ -298,7 +331,14 @@ export default function ApproverPage() {
               </span>
               History ({history.length}) — settled, expired, or stuck before a state-machine fix (see PROJECT_STATUS.md)
             </summary>
-            <div style={{ marginTop: "0.75rem" }}>{history.map((w) => renderCard(w, true))}</div>
+            <div style={{ marginTop: "0.75rem" }}>
+              {historyVisible.map((w) => renderCard(w, true))}
+              {historyShown < history.length && (
+                <button type="button" className="view-more" onClick={() => setHistoryShown((n) => n + PAGE_SIZE)}>
+                  View more ({history.length - historyShown} remaining) →
+                </button>
+              )}
+            </div>
           </details>
         )}
       </div>

@@ -48,6 +48,7 @@ export default function LoginPage() {
 
   return (
     <>
+      <span className="role-chip">only your own passage — no admin controls live here</span>
       <h1>{mode === "login" ? "Log in" : "Register"}</h1>
       <p className="subtitle">
         Tegata Core is a private API group — every request needs a bearer token from a logged-in user. New accounts
@@ -55,7 +56,7 @@ export default function LoginPage() {
         account has to be assigned manually in the Xano dashboard.
       </p>
 
-      <form onSubmit={handleSubmit} data-testid="auth-form">
+      <form onSubmit={handleSubmit} data-testid="auth-form" className="card" style={{ maxWidth: 420 }}>
         {mode === "register" && (
           <>
             <label htmlFor="name">Name</label>

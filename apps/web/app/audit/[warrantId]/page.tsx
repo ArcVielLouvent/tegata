@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { getWarrant, getAuditLog, apiMode } from "../../../lib/apiClient";
 import type { MockWarrant } from "../../../lib/mockStore";
 
+const PAGE_SIZE = 10;
+
 function short(hash: string | null): string {
   if (!hash) return "(none — first entry)";
   return `${hash.slice(0, 10)}…${hash.slice(-6)}`;
@@ -15,6 +17,11 @@ export default function AuditTrailPage({ params }: { params: { warrantId: string
   const [entries, setEntries] = useState<any[]>([]);
   const [chainIntact, setChainIntact] = useState(true);
   const [loading, setLoading] = useState(true);
+  // Caps how many chain entries render at once — this list only ever
+  // grows for an active warrant, so without a cap it would become an
+  // endless page over its lifetime. Original chronological order (and
+  // therefore existing audit-entry-{i} indices) is left untouched.
+  const [shown, setShown] = useState(PAGE_SIZE);
 
   async function load() {
     setLoading(true);
@@ -35,6 +42,7 @@ export default function AuditTrailPage({ params }: { params: { warrantId: string
 
   return (
     <>
+      <span className="role-chip">every entry here is permanent — nothing can be edited or deleted</span>
       <h1>Audit trail</h1>
       <p className="subtitle">
         Mode: <span className="mono">{apiMode()}</span> — every entry stores a SHA-256 hash of its own content plus the
@@ -46,23 +54,26 @@ export default function AuditTrailPage({ params }: { params: { warrantId: string
       {loading && <p className="muted">Loading…</p>}
 
       {!loading && warrant && (
-        <div className="row" style={{ marginBottom: "1rem" }}>
-          <span className={`badge ${warrant.risk_score.tier}`}>{warrant.risk_score.tier} risk</span>
+        <div className="row" style={{ marginBottom: "1rem", alignItems: "center" }}>
+          <div className={`stamp ${warrant.risk_score.tier}`} style={{ width: 44, height: 44 }}>
+            <span className="tier" style={{ fontSize: "0.6rem" }}>
+              {warrant.risk_score.tier}
+            </span>
+          </div>
           <span className="badge status" data-testid="audit-warrant-status">
             {warrant.status}
           </span>
         </div>
       )}
 
-      <div
-        className={`banner ${chainIntact ? "success" : "error"}`}
-        data-testid="chain-integrity-banner"
-      >
-        {chainIntact ? "Hash chain intact — every entry links correctly to the one before it." : "Chain integrity broken — a stored entry does not match its recomputed hash."}
+      <div className={`banner ${chainIntact ? "success" : "error"}`} data-testid="chain-integrity-banner">
+        {chainIntact
+          ? "Hash chain intact — every entry links correctly to the one before it."
+          : "Chain integrity broken — a stored entry does not match its recomputed hash."}
       </div>
 
       <div data-testid="audit-entries">
-        {entries.map((entry, i) => (
+        {entries.slice(0, shown).map((entry, i) => (
           <div className="chain-entry" key={entry.entry_id} data-testid={`audit-entry-${i}`}>
             <div className="row">
               <strong>{entry.event}</strong>
@@ -74,6 +85,11 @@ export default function AuditTrailPage({ params }: { params: { warrantId: string
           </div>
         ))}
         {entries.length === 0 && !loading && <p className="muted">No audit entries yet for this warrant.</p>}
+        {shown < entries.length && (
+          <button type="button" className="view-more" onClick={() => setShown((n) => n + PAGE_SIZE)}>
+            View more entries ({entries.length - shown} remaining) →
+          </button>
+        )}
       </div>
     </>
   );
