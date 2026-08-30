@@ -58,7 +58,22 @@ async function handleResponse(res: Response): Promise<any> {
   } catch {
     /* no body */
   }
-  if (!res.ok) throw new FoxitAPIError(res.status, data?.message || res.statusText, data);
+  // Foxit's confirmed real error shape (from a live curl test, 2026-08-30):
+  // {"result":"error","error_description":"invalid folder id"} — note
+  // error_description, NOT message. This was being missed entirely,
+  // silently falling back to the generic HTTP status text for every
+  // Foxit error instead of the actual reason.
+  if (!res.ok) {
+    throw new FoxitAPIError(res.status, data?.error_description || data?.message || res.statusText, data);
+  }
+  // Foxit apparently can return HTTP 200 with a body-level error
+  // (result: "error") rather than a non-2xx status — confirmed by the
+  // same curl test (invalid folder id came back as HTTP 200). Treat
+  // that as a failure too, or callers checking only res.ok will think
+  // a body-level error succeeded.
+  if (data?.result === "error") {
+    throw new FoxitAPIError(res.status, data?.error_description || "Foxit returned result: error with no error_description", data);
+  }
   return data;
 }
 
@@ -81,9 +96,16 @@ export interface SignatureField {
   party?: number;
   name?: string;
   required?: boolean;
+  /** REQUIRED for type:"text" per Foxit's own confirmed dashboard
+   * sample (2026-08-30) — every text field in their real example has
+   * this, distinct from `name`. Not confirmed whether it's genuinely
+   * required by the API or just always present by convention in their
+   * sample; included to match rather than omit and guess wrong again. */
+  textFieldName?: string;
+  characterLimit?: number;
 }
 
-function partyToBody(p: Party) {
+function partyToBody(p: Party, index: number) {
   return {
     firstName: p.firstName,
     lastName: p.lastName,
@@ -94,7 +116,15 @@ function partyToBody(p: Party) {
   };
 }
 
-function fieldToBody(f: SignatureField) {
+/** Field shape confirmed against Foxit's own real dashboard code
+ * sample (2026-08-30) — this was previously missing textfieldName,
+ * tabOrder, and partyResponsible entirely, sending only a small subset
+ * of what their own example includes for every field. Whether the
+ * missing ones were actually REQUIRED (as opposed to Foxit tolerating
+ * their absence) is not separately confirmed — but matching the known-
+ * working shape exactly is safer than continuing to guess which subset
+ * is optional. */
+function fieldToBody(f: SignatureField, index: number) {
   const d: any = {
     type: f.type,
     x: f.x,
@@ -103,18 +133,40 @@ function fieldToBody(f: SignatureField) {
     height: f.height,
     pageNumber: f.pageNumber ?? 1,
     documentNumber: f.documentNumber ?? 1,
+    tabOrder: index + 1,
     party: f.party ?? 1,
+    partyResponsible: f.party ?? 1,
     required: f.required ?? true,
   };
   if (f.name) d.name = f.name;
+  if (f.type === "text") {
+    d.textfieldName = f.textFieldName ?? f.name ?? `field_${index + 1}`;
+    d.characterLimit = f.characterLimit ?? 100;
+    d.fontSize = 12;
+    d.fontFamily = "default";
+    d.fontColor = "#000000";
+  }
   return d;
 }
 
-/** POST /v1/folders/createfolder (multipart) — uploads a PDF and
- * creates a signature envelope ("folder") in one call. Pass
- * createEmbeddedSigningSession: true to get back a hosted signing
- * link the demo can open directly, instead of relying on an email
- * round-trip (much better for a live hackathon demo). */
+/** POST /v1/folders/createfolder (JSON body, inputType: "base64") —
+ * creates a signature envelope ("folder") from an in-memory PDF. Pass
+ * createEmbeddedSigningSession: true to get back a hosted signing link
+ * the demo can open directly, instead of relying on an email
+ * round-trip (much better for a live hackathon demo).
+ *
+ * CHANGED 2026-08-30: previously sent the PDF as multipart/form-data,
+ * which returned a real 403 in live testing. Confirmed via Foxit's own
+ * developer docs (developersguide.foxitesign.foxit.com) and multiple
+ * third-party integration guides (n8n, MCP server examples) that
+ * `inputType: "base64"` + a `base64FileString` array (paired with a
+ * matching `fileNames` array) is the documented method for files that
+ * aren't at a public URL — exactly our situation, since Doctavian
+ * generates the PDF in-memory on our own server with no public hosting.
+ * client_id/client_secret headers (not the OAuth Bearer token these
+ * docs otherwise show) are kept as-is — confirmed working via a live
+ * curl test against this project's actual account, which takes
+ * precedence over generic documentation. */
 export async function createEnvelopeFromBinary(
   config: FoxitConfig,
   opts: {
@@ -129,20 +181,19 @@ export async function createEnvelopeFromBinary(
 ): Promise<any> {
   const dataPayload = {
     folderName: opts.folderName,
-    parties: opts.parties.map(partyToBody),
-    fields: opts.fields.map(fieldToBody),
+    inputType: "base64",
+    base64FileString: [opts.pdfBuffer.toString("base64")],
+    fileNames: [opts.pdfFileName],
+    parties: opts.parties.map((p, i) => partyToBody(p, i)),
+    fields: opts.fields.map((f, i) => fieldToBody(f, i)),
     sendNow: opts.sendNow ?? true,
     createEmbeddedSigningSession: opts.createEmbeddedSigningSession ?? true,
   };
 
-  const form = new FormData();
-  form.append("file", new Blob([new Uint8Array(opts.pdfBuffer)], { type: "application/pdf" }), opts.pdfFileName);
-  form.append("data", JSON.stringify(dataPayload));
-
   const res = await fetch(`${config.baseUrl}/v1/folders/createfolder`, {
     method: "POST",
-    headers: headers(config, false),
-    body: form,
+    headers: headers(config, true),
+    body: JSON.stringify(dataPayload),
   });
   return handleResponse(res);
 }

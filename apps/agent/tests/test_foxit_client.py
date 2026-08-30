@@ -1,3 +1,4 @@
+import base64
 import json
 
 import pytest
@@ -49,9 +50,18 @@ def test_create_envelope_from_binary_sends_correct_headers_and_data(client, tmp_
     sent = responses_lib.calls[0].request
     assert sent.headers["client_id"] == "test-id"
     assert sent.headers["client_secret"] == "test-secret"
-    # multipart body should contain both "file" and "data" parts
-    assert b'name="file"' in sent.body
-    assert b'name="data"' in sent.body
+    assert sent.headers["Content-Type"] == "application/json"
+    # JSON body should use inputType:"base64", not multipart — see
+    # foxit_client.py's 2026-08-30 rewrite (multipart returned a real
+    # 403 in live testing; base64 is Foxit's documented method for
+    # files not at a public URL, confirmed via developersguide.foxitesign.foxit.com)
+    body = json.loads(sent.body)
+    assert body["inputType"] == "base64"
+    assert body["fileNames"] == ["warrant.pdf"]
+    assert len(body["base64FileString"]) == 1
+    # round-trip: decoding the base64 should give back the exact bytes written to fake_pdf
+    decoded = base64.b64decode(body["base64FileString"][0])
+    assert decoded == b"%PDF-1.4 fake pdf bytes"
 
 
 @responses_lib.activate
@@ -78,18 +88,17 @@ def test_create_envelope_sends_correct_party_and_field_shape(client, tmp_path):
     )
 
     sent_body = responses_lib.calls[0].request.body
-    # extract the "data" form field's JSON value from the multipart body
-    body_str = sent_body.decode("utf-8", errors="ignore")
-    start = body_str.index('name="data"')
-    json_start = body_str.index("{", start)
-    json_end = body_str.rindex("}") + 1
-    data_payload = json.loads(body_str[json_start:json_end])
+    data_payload = json.loads(sent_body)
 
     assert data_payload["folderName"] == "Tegata Warrant"
     assert data_payload["parties"][0]["emailId"] == "alice@example.com"
     assert data_payload["parties"][0]["permission"] == "FILL_FIELDS_AND_SIGN"
     assert data_payload["fields"][0]["type"] == "signature"
     assert data_payload["fields"][0]["x"] == 100
+    # tabOrder/partyResponsible confirmed required in Foxit's own real
+    # dashboard sample (2026-08-30) — previously omitted entirely.
+    assert data_payload["fields"][0]["tabOrder"] == 1
+    assert data_payload["fields"][0]["partyResponsible"] == 1
 
 
 @responses_lib.activate
