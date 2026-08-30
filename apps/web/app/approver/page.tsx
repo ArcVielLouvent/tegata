@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { listWarrants, signWarrant, prepareSignature, attachEnvelope, confirmSignature, apiMode, ApiError } from "../../lib/apiClient";
 import { useAuth } from "../../lib/AuthContext";
+import { RoleGate } from "../../lib/RoleGate";
 import type { MockWarrant } from "../../lib/mockStore";
 
 interface PreparedEnvelope {
@@ -267,7 +268,7 @@ export default function ApproverPage() {
   }
 
   return (
-    <>
+    <RoleGate allow={["approver", "security_admin"]}>
       <span className="role-chip hanko">this is the approver's screen, not the requester's</span>
       <h1>Approve access requests</h1>
       <p className="subtitle">
@@ -342,6 +343,6 @@ export default function ApproverPage() {
           </details>
         )}
       </div>
-    </>
+    </RoleGate>
   );
 }

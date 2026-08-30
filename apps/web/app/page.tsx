@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { createWarrant, apiMode, ApiError } from "../lib/apiClient";
 import { useAuth } from "../lib/AuthContext";
+import { RoleGate } from "../lib/RoleGate";
 import type { MockWarrant } from "../lib/mockStore";
 
 const RESOURCES = [
@@ -103,7 +104,7 @@ export default function RequesterPage() {
   }
 
   return (
-    <>
+    <RoleGate allow={["requester", "security_admin"]}>
       <span className="role-chip">this is your request queue, not the approver's</span>
       <h1>Request privileged access</h1>
       <p className="subtitle">
@@ -266,6 +267,6 @@ export default function RequesterPage() {
           </p>
         </div>
       )}
-    </>
+    </RoleGate>
   );
 }
