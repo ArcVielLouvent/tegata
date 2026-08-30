@@ -803,3 +803,73 @@ never exposed in the actual login/register UI.
 **Not done, not attempted this session:** merging `phase/6-frontend-demo`
 to `main` (still deferred, see Quick Orientation above), Phase 7
 stretch features, anything related to submission materials (Phase 8).
+
+## Branch reconciliation + CI/session fixes (2026-08-31)
+
+Three separate sessions had built forward from the same commit
+(`d32c87b`) without ever syncing: (1) this branch's own confirmed
+folderId/signingUrl fix + Quick Orientation notes, (2) a parallel
+session's "Sekisho Ledger" visual redesign v2 + frontend `RoleGate`
+RBAC gate, (3) a parallel `phase/7-stretch-features` branch. All three
+are now reconciled: this branch (`phase/6-frontend-demo`) carries (1)
+and (2) — the confirmed-working signing fix plus the redesign and
+RBAC gate, cherry-picked in that order so the confirmed fix wasn't
+accidentally reverted by the older code the other two branches forked
+from. Phase 7's commits are cherry-picked on a separate branch,
+stacked on this one, to be resumed later — not merged in here.
+
+**Root cause of the CI failure from the earlier Playwright run,
+confirmed by reading the actual render logic (not guessed):** the v2
+redesign moved any warrant not in `{"pending_approval", "signed"}` —
+including "active" — into a "History" section wrapped in a native
+`<details>` element, collapsed by default. Both failing tests needed
+to interact with elements that only exist on an already-active
+warrant (the audit-trail link, the replay-attempt sign button) — both
+now sit inside that collapsed `<details>`, which genuinely hides its
+content until opened. Playwright correctly found the elements in the
+DOM and correctly reported them as not visible; this was never a
+flaky-CI issue. Fixed by giving `<summary>` a
+`data-testid="history-toggle-summary"` and having both specs click it
+open before interacting with anything inside — the same thing a real
+user has to do.
+
+**Session-refresh bug ("logged in, refreshed the page, got treated as
+unauthorized"), two real causes found in `apps/web/lib/`, not a Xano
+issue:**
+1. `RoleGate.tsx` computed `role = user?.role || "requester"` without
+   checking `useAuth()`'s own `loading` flag first. On a hard refresh,
+   `AuthContext`'s token restore (`getStoredToken()` -> `fetchMe()`)
+   is async, so `user` is briefly `null` even though a valid token
+   sits in localStorage the whole time — during that window this
+   defaulted everyone to `"requester"`, showing "This screen isn't for
+   your role" to a real approver refreshing `/approver`. Fixed:
+   returns `null` while `loading` is true.
+2. `AuthContext.tsx` cleared the stored token on ANY `fetchMe()`
+   failure, not just an actual 401/403. `auth.ts`'s own module
+   docstring already flagged `NEXT_PUBLIC_XANO_AUTH_ME_PATH` as an
+   unconfirmed guess at Xano's real path — if that guess is wrong (or
+   there's a transient network/CORS hiccup), every refresh would
+   silently throw away a perfectly good token and force a real
+   re-login. Fixed: only clears the token on a confirmed 401/403;
+   anything else surfaces as a retryable error instead.
+
+**Not a bug (clarified by Armand 2026-08-31):** `audit_log` never
+having a `requested_by`-style field is expected — that data lives on
+the separate `requests`/`warrants` tables, `audit_log` only records
+the event chain (`actor`, `event`, `prev_hash`, `hash`, `timestamp`).
+No fix needed here; removed from the open-issues list.
+
+**Verified this session:** `tsc --noEmit` (apps/web) clean, `next
+build` clean (the font-stylesheet minify warning during build is
+Claude's sandbox network egress restriction on
+`fonts.googleapis.com`, not a real error — GitHub Actions' runner has
+normal network access), Python regression 137/137 (`apps/agent`),
+both schema-consistency tests (Python + TS) passing when run with the
+same `PYTHONPATH`/`ts-node` flags `.github/workflows/phase-0.yml`
+actually uses. **NOT verified:** the e2e Playwright run itself —
+Claude's sandbox can't install Playwright's browser binaries (blocked
+by the same network egress restriction), so the collapsed-`<details>`
+fix is confirmed by reading the render logic and matching it exactly
+against the CI failure's error output, not by re-running the suite.
+Run `npm run test:e2e` locally or push to CI to get that final
+confirmation before merging to `main`.
