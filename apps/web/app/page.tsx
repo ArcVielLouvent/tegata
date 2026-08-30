@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { createWarrant, apiMode, ApiError } from "../lib/apiClient";
+import { createWarrant, listWarrants, apiMode, ApiError } from "../lib/apiClient";
 import { useAuth } from "../lib/AuthContext";
 import { RoleGate } from "../lib/RoleGate";
+import { secondsUntilExpiry, formatCountdown } from "../lib/ttl";
 import type { MockWarrant } from "../lib/mockStore";
 
 const RESOURCES = [
@@ -26,6 +27,18 @@ export default function RequesterPage() {
   const [warrant, setWarrant] = useState<MockWarrant | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Stretch F (ROADMAP.md Phase 7 #6, "extension request" — see
+  // PROJECT_STATUS.md for the full design rationale): when set, this
+  // submission is an EXTENSION of an existing warrant, not a fresh
+  // request. The original warrant is never mutated — this is a
+  // separate request/approval for a new time window, linked via
+  // related_warrant_id for traceability only. Cleared on submit or
+  // by the "Cancel extension" button.
+  const [relatedWarrantId, setRelatedWarrantId] = useState<string | null>(null);
+  const [myWarrants, setMyWarrants] = useState<MockWarrant[]>([]);
+  const [myWarrantsError, setMyWarrantsError] = useState<string | null>(null);
+  const [, setTick] = useState(0); // forces a re-render every second so countdowns visibly count down
 
   // Phase 4 AI front-door: free text -> LLM two-pass extraction -> hard
   // validation gate (server-side, see app/api/nlu/parse/route.ts) ->
@@ -68,6 +81,33 @@ export default function RequesterPage() {
     }
   }
 
+  async function refreshMyWarrants() {
+    setMyWarrantsError(null);
+    try {
+      const { warrants } = await listWarrants();
+      setMyWarrants(warrants);
+    } catch (err) {
+      setMyWarrantsError(err instanceof ApiError ? err.message : String(err));
+    }
+  }
+
+  useEffect(() => {
+    refreshMyWarrants();
+    const tickInterval = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(tickInterval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function requestExtension(source: MockWarrant) {
+    setRelatedWarrantId(source.warrant_id);
+    setResource(source.request.resource);
+    setReason(`Extension of ${source.warrant_id}: ${source.request.reason}`);
+    setTicketRef(source.request.ticket_ref ?? "");
+    setWarrant(null);
+    setError(null);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   const needsLogin = apiMode() === "xano" && !authLoading && !token;
 
   if (needsLogin) {
@@ -94,8 +134,11 @@ export default function RequesterPage() {
         requested_duration_minutes: Number(duration),
         ticket_ref: ticketRef || undefined,
         requested_by: effectiveRequestedBy || undefined,
+        related_warrant_id: relatedWarrantId || undefined,
       });
       setWarrant(warrant);
+      setRelatedWarrantId(null);
+      await refreshMyWarrants();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
@@ -138,6 +181,17 @@ export default function RequesterPage() {
           </div>
         )}
       </div>
+
+      {relatedWarrantId && (
+        <div className="banner warning" data-testid="extension-banner">
+          Requesting an extension of <strong className="mono">{relatedWarrantId}</strong> — fill in how much
+          additional time you need below, then submit. This is a brand-new request that needs its own approval;
+          the original warrant is not changed.{" "}
+          <button type="button" onClick={() => setRelatedWarrantId(null)} data-testid="cancel-extension">
+            Cancel extension
+          </button>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} data-testid="request-form">
         <label htmlFor="resource">Resource</label>
@@ -221,7 +275,12 @@ export default function RequesterPage() {
               </div>
             </div>
           </div>
-          <p style={{ marginBottom: 0, marginTop: "1rem" }}>
+          {warrant.request.related_warrant_id && (
+            <p className="muted" style={{ marginBottom: 0, marginTop: "1rem" }}>
+              Extension of <span className="mono">{warrant.request.related_warrant_id}</span>.
+            </p>
+          )}
+          <p style={{ marginBottom: 0, marginTop: warrant.request.related_warrant_id ? 0 : "1rem" }}>
             Requires <strong data-testid="required-approver-count">{warrant.approval_requirement.required_approver_count}</strong> approver
             {warrant.approval_requirement.required_approver_count > 1 ? "s" : ""}, capped at{" "}
             <strong>{warrant.approval_requirement.max_duration_minutes} min</strong>
@@ -267,6 +326,55 @@ export default function RequesterPage() {
           </p>
         </div>
       )}
+
+      <div style={{ marginTop: "2rem" }}>
+        <div className="row">
+          <h2 style={{ marginBottom: 0 }}>My requests</h2>
+          <button type="button" onClick={refreshMyWarrants} data-testid="refresh-my-warrants">
+            Refresh
+          </button>
+        </div>
+        {myWarrantsError && (
+          <div className="banner error" data-testid="my-warrants-error">
+            {myWarrantsError}
+          </div>
+        )}
+        {myWarrants.length === 0 && !myWarrantsError && <p className="muted">No requests yet.</p>}
+        {myWarrants.map((w) => {
+          const remaining = w.status === "active" ? secondsUntilExpiry(w.expires_at) : null;
+          const nearExpiry = remaining !== null && remaining > 0 && remaining <= 300; // 5 min warning threshold
+          return (
+            <div key={w.warrant_id} className="card" style={{ marginTop: "0.75rem" }} data-testid={`my-warrant-${w.warrant_id}`}>
+              <div className="row">
+                <strong className="mono">{w.warrant_id}</strong>
+                <span className={`badge ${w.risk_score.tier}`}>{w.risk_score.tier} risk</span>
+                <span className="badge status">{w.status}</span>
+                {remaining !== null && (
+                  <span className={nearExpiry ? "badge warning" : "badge"} data-testid={`countdown-${w.warrant_id}`}>
+                    {formatCountdown(remaining)}
+                  </span>
+                )}
+              </div>
+              <p className="muted" style={{ marginBottom: 0 }}>
+                {w.request.resource} — {w.request.reason}
+                {w.request.related_warrant_id && (
+                  <>
+                    {" "}
+                    (extension of <span className="mono">{w.request.related_warrant_id}</span>)
+                  </>
+                )}
+              </p>
+              {w.status === "active" && (
+                <p style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+                  <button type="button" onClick={() => requestExtension(w)} data-testid={`request-extension-${w.warrant_id}`}>
+                    {nearExpiry ? "Request extension (expiring soon!)" : "Request extension"}
+                  </button>
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </RoleGate>
   );
 }

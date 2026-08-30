@@ -11,10 +11,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@tegata/schema": "*",
+    "jszip": "^3.10.1",
     "next": "^14.2.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "@tegata/schema": "*",
     "zod": "^3.23.0"
   },
   "devDependencies": {

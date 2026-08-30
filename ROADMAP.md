@@ -47,6 +47,7 @@ Status is synced with `scripts/phase-sync.sh` (see bottom of this document).
 3. **Dual-audience document generation** (Doctavian) — approver doc + ops runbook from one data model.
 4. **Progressive disclosure via redaction** (Foxit) — clauses reveal in stages as approval progresses.
 5. **Synthetic canary warrant** (Xano) — self-monitoring pipeline.
+6. **Extension requests** (Xano + apps/web) — identified 2026-08-30, not part of the original 5 above: a new, always-independently-approved warrant linked (`related_warrant_id`) to an existing one, for when a requester's time estimate turns out wrong before the original expires. See PROJECT_STATUS.md's "Stretch F" section for the full design rationale and Xano-side notes.
 
 ## Phase 8 — Documentation & Submission
 **Scope:** full README (including the name/meaning explanation), architecture docs, benchmark docs (`docs/benchmarks.md`), testing docs (`docs/testing.md`), demo video, Devpost submission for each track (Xano, Foxit, Doctavian, Overall Winner).

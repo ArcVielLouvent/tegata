@@ -46,6 +46,10 @@
         "requested_by": {
           "type": "string",
           "description": "Requester identifier."
+        },
+        "related_warrant_id": {
+          "type": ["string", "null"],
+          "description": "Extension-request link (Phase 7 Stretch F): set when this request is an EXTENSION of an existing active/expired warrant, not a fresh one. The original warrant is never mutated -- this is a separate request/approval for a new time window, linked for traceability only."
         }
       },
       "additionalProperties": false

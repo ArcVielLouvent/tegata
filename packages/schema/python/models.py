@@ -41,6 +41,14 @@ class AccessRequest(BaseModel):
     requested_duration_minutes: int = Field(..., ge=1, le=1440)
     ticket_ref: Optional[str] = None
     requested_by: Optional[str] = None
+    related_warrant_id: Optional[str] = Field(
+        default=None,
+        description="Extension-request link (Phase 7 Stretch F): when set, this "
+        "request is an EXTENSION of an existing active/expired warrant, not a "
+        "fresh one -- the original warrant is never mutated (immutability is "
+        "load-bearing for the audit trail), this is a separate request/approval "
+        "for a new time window, linked for traceability only.",
+    )
 
     model_config = {"extra": "forbid"}
 
