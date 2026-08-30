@@ -959,30 +959,33 @@ as §9/§13's endpoints) rather than full specs like §13's.
    **NOT verified:** an actual Doctavian call with this second
    template (needs `DOCTAVIAN_ACCESS_TOKEN` set — same short-lived
    OAuth token constraint as the existing warrant template).
-4. **Progressive disclosure via redaction (Foxit) — not started.**
-   Needs Foxit's redaction API confirmed (unexplored so far, unlike
-   item 2 which now has a confirmed real spec) and a second
-   document-generation pass triggered by the first-signature event.
-   Deferred — `tegata-concept.md`'s own reasoning for de-prioritizing
-   this ("needs more additional state") still holds, and Phase 6's
-   open bugs remain the real blocker for testing any of this live
-   regardless of order.
-5. **Synthetic canary warrant (Xano) — NOTES ONLY, not built.** A
-   scheduled Xano task that periodically submits a fake, low-risk
-   warrant through the full pipeline (through Doctavian, up to
-   signature-ready in Foxit) as a live health check. Rough shape for
-   later: Xano's own scheduled-task feature calling `/score` with a
-   synthetic low-risk request (`internal_wiki`, a fixed
-   `requested_by` like `canary@tegata.internal`, a marker in
-   `reason` or `ticket_ref` like `SYNTHETIC-CANARY` so real audit
-   logs/dashboards can filter these out), then — once items 2/3's
-   routes are confirmed working — optionally chaining into
-   `/api/documents/prepare` too for a deeper health check. Simplest
-   version (Xano-only, no dependency on this repo's new routes): just
-   confirm `/score` itself still returns 200 with a sane risk score on
-   a schedule, alert if not. Needs: Xano scheduled task + a place to
-   send the alert (email, Slack, whatever Xano's scheduled-task
-   feature supports) — otherwise reuses everything else already built.
+4. **Progressive disclosure (Doctavian, PIVOTED from Foxit redaction) —
+   CODE WRITTEN, not tested end-to-end.** Researched 2026-08-30 (real
+   web search): Foxit's actual redaction product is "Smart Redact," a
+   separate Foxit PDF Editor+ plugin / "Smart Redact Server" cloud
+   product with its OWN subscription — NOT part of the eSign or PDF
+   Services REST APIs this project already has developer keys for.
+   Rather than guess at an API that doesn't exist for this purpose,
+   pivoted to reuse Doctavian's already-confirmed conditional-paragraph
+   templating (same `<mdoc:paragraph hidden="{!$expr}">` mechanism
+   already proven in the warrant/runbook templates) — new template
+   `apps/web/assets/tegata-warrant-progressive.docx` with a
+   `reveal_level` variable gating a "technical execution details"
+   section, `apps/web/lib/progressiveDisclosureDocument.ts` + `POST
+   /api/documents/generate-progressive`. Verified: template round-trips
+   as valid ZIP with both conditional blocks present, tsc/build clean,
+   route's `config_error` path. **NOT verified:** an actual Doctavian
+   call (needs `DOCTAVIAN_ACCESS_TOKEN`). **Real limitation, not
+   overclaimed:** this only GENERATES a document at a given
+   `reveal_level` on request — it's not wired to auto-regenerate after
+   a real first-signature event, because xano mode has no
+   per-signature progress tracking yet (see `apiClient.ts`'s own module
+   docstring) to detect "the first of 2 signatures just landed" as an
+   event at all. Call manually (`reveal_level: "redacted"` at request
+   time, `"full"` once that gap closes or for a manual demo) until
+   that's solved.
+5. **Synthetic canary warrant (Xano) — NOTES + explicit build prompt
+   below, not built.**
 
 **Isolation decision for items 2 and 3:** both new routes
 (`/api/documents/verify-consistency`, `/api/documents/generate-dual`)
@@ -1076,3 +1079,85 @@ not a new approval shortcut.
    `/warrants/attach-envelope` -> `/warrants/confirm-signature` or the
    legacy `/warrants/transition` path) completely unmodified. This is
    the smallest possible Xano-side change of any stretch item so far.
+
+## Explicit Xano AI build prompts for items 1 and 5 (2026-08-30)
+
+Both below are written to paste directly to Xano's AI agent, same as
+the §9/§13 prompts earlier in this file — explicit inputs, explicit
+logic, explicit field names, grounded in the actual confirmed
+algorithm in this repo's own code (not re-derived or approximated).
+
+### Prompt A — Hash-chain verify endpoint (Stretch item 1)
+
+> Saya perlu 1 endpoint baru untuk workspace Tegata Core yang sudah ada:
+>
+> **`GET /warrants/{warrant_id}/audit/verify`** (Private/auth required, sama seperti endpoint warrant lainnya)
+>
+> Logic:
+> 1. Ambil semua row dari tabel `audit_log` yang `warrant_id`-nya cocok, urutkan berdasarkan `timestamp` ascending (paling lama duluan). Kalau kosong, return `{"intact": true, "checked_count": 0}`.
+> 2. Loop tiap row secara berurutan, dengan variabel `previous_hash` yang mulai dari `null`:
+>    a. Cek: apakah `row.prev_hash` row ini sama dengan `previous_hash` (hasil dari row sebelumnya)? Kalau row pertama, `previous_hash` harus `null`.
+>    b. Hitung ulang hash konten row ini sendiri: bikin objek JSON persis begini (urutan key harus **alfabetis**: `actor`, `event`, `prev_hash`, `timestamp`, `warrant_id`), lalu serialize ke string JSON **tanpa spasi** (separator `,` dan `:` doang, bukan `, ` dan `: `), lalu SHA-256 hash string itu jadi hex string.
+>       - `actor`: value dari `row.actor` (bisa `null`)
+>       - `event`: value dari `row.event`
+>       - `prev_hash`: value dari `row.prev_hash` (bisa `null`)
+>       - `timestamp`: `row.timestamp` diformat ulang jadi string **persis** `YYYY-MM-DDTHH:MM:SSZ` (UTC, presisi detik, akhiran huruf `Z`) — BUKAN format ISO default yang ada offset `+00:00` atau microsecond.
+>       - `warrant_id`: value dari `row.warrant_id`
+>    c. Bandingkan hash yang baru dihitung itu sama `row.hash` yang tersimpan. Kalau BEDA, atau kalau langkah (a) di atas gagal — STOP loop, return `{"intact": false, "broken_at_index": <index row ini, mulai dari 0>, "broken_entry_id": row.entry_id, "checked_count": <jumlah row yang udah dicek termasuk yang ini>}`.
+>    d. Kalau cocok semua: `previous_hash` = `row.hash`, lanjut ke row berikutnya.
+> 3. Kalau semua row lolos: return `{"intact": true, "checked_count": <total row>}`.
+>
+> Ini buat demo: saya bakal sengaja ubah manual 1 field (misal `reason` atau `actor`) di 1 row lewat Database tab Xano, terus panggil endpoint ini buat buktiin dia bisa nunjuk row mana yang rusak.
+
+### Prompt B — Synthetic canary warrant (Stretch item 5)
+
+> Saya perlu 1 scheduled task baru di workspace Tegata Core:
+>
+> **Scheduled task**, jalan tiap [ISI SENDIRI — misal tiap 30 menit, terserah kamu], Function Stack-nya:
+> 1. Panggil Function Stack yang sama persis dengan yang dipakai `POST /score` (reuse logic-nya, jangan duplikat manual), dengan input:
+>    - `resource`: `"internal_wiki"`
+>    - `reason`: `"Automated health check — safe to ignore"`
+>    - `requested_duration_minutes`: `5`
+>    - `ticket_ref`: `"SYNTHETIC-CANARY"`
+>    - `requested_by`: `"canary@tegata.internal"`
+> 2. Kalau panggilan itu GAGAL (error apapun, bukan response sukses normal) ATAU hasilnya `risk_score.tier` bukan `"low"` (harusnya selalu low untuk `internal_wiki` — kalau bukan low, berarti risk engine-nya sendiri yang berubah perilaku, itu tanda bahaya): kirim notifikasi [ISI SENDIRI — email/Slack/apapun yang didukung scheduled task Xano kamu] yang isinya jelas nyebut ini canary warrant gagal, plus detail errornya.
+> 3. Kalau sukses dan `tier` beneran `"low"`: gak perlu notifikasi apa-apa, cukup biarin warrant-nya kebuat normal (biar gampang di-filter belakangan lewat `ticket_ref = "SYNTHETIC-CANARY"` kalau mau di-cleanup atau dikecualikan dari dashboard/reporting beneran).
+>
+> Ini versi paling ringan — cuma ngecek `/score` doang, gak sampai ke Doctavian/Foxit. Kalau nanti mau diperdalam sampai ke tahap prepare-signature, kasih tau saya, itu perlu langkah tambahan yang manggil route Next.js (`/api/documents/prepare`), bukan cuma di dalam Xano sendiri.
+
+## Bug fix: Foxit-embed signing state lost on navigation/logout (2026-08-30, additional)
+
+Armand reported: signed inside the Foxit iframe but hadn't clicked
+"I've signed — confirm" yet, then navigated away or logged out — the
+UI reset and asked to prepare (generate a brand-new document + Foxit
+envelope) all over again, discarding a perfectly good envelope that
+was already waiting to be confirmed.
+
+Root cause: the Approver page's `prepared` state (holding
+`folder_id`/`signing_url`/`document_hash`) was **only ever** local
+React `useState` — nothing durable. But §13b's `attach-envelope`
+endpoint already stores exactly this data on the warrant row in Xano
+(`document_id`, `foxit_folder_id`, `foxit_signing_url`,
+`document_hash`) — the durable copy existed the whole time, the
+frontend just never read it back.
+
+Fixed in two places:
+1. `apiClient.ts`'s `normalizeWarrant()` now maps those 3 fields
+   through from Xano's response (previously not mapped at all — also
+   fixed `ticket_ref` and `related_warrant_id`, which had the exact
+   same silent-drop bug, found while making this fix. `related_warrant_id`
+   specifically would have broken Stretch F's "(extension of ...)" UI
+   note the first time it was tested in xano mode).
+2. Approver page's `refresh()` now seeds `prepared` from any warrant
+   that already has `foxit_folder_id` set, every time it runs (not
+   just once at mount) — Xano's stored value wins over local state,
+   since local state can't survive a reload anyway.
+
+Verified: tsc/build clean, mock mode re-smoke-tested unaffected
+(mock warrants never have `foxit_folder_id` set, so this path is a
+no-op there). **NOT verified against real Xano** — depends on §13b
+actually storing and §13c/GET /warrants actually returning these
+field names as speced; if Xano used different field names when it was
+built, this fix silently won't seed anything (same class of risk as
+every other "confirm the real field name" item in this file — flagged
+here rather than assumed away).

@@ -50,6 +50,16 @@ export default function ApproverPage() {
   const [signerEmail, setSignerEmail] = useState("approver@example.com");
   const [messages, setMessages] = useState<Record<string, Message>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  /** This state is now seeded from Xano's own stored fields on refresh()
+   * (see below) as well as set locally right after a successful
+   * prepareSignature()+attachEnvelope() call — it's a client-side cache
+   * of what Xano already durably knows, not the only copy of it. Fixed
+   * 2026-08-30: previously this was the ONLY place this data lived, so
+   * navigating away or logging out mid-signing (after signing inside the
+   * Foxit iframe but before clicking "I've signed — confirm") lost it
+   * entirely and the UI asked to prepare a brand-new envelope from
+   * scratch on return, even though a perfectly good one already existed
+   * in Foxit waiting to be confirmed. */
   const [prepared, setPrepared] = useState<Record<string, PreparedEnvelope>>({});
   const [listError, setListError] = useState<string | null>(null);
   const [needsActionShown, setNeedsActionShown] = useState(PAGE_SIZE);
@@ -64,6 +74,25 @@ export default function ApproverPage() {
     try {
       const { warrants } = await listWarrants();
       setWarrants(warrants);
+      // Seed `prepared` from Xano's own stored fields (§13b) instead of
+      // only ever trusting local React state — this is the actual fix
+      // for "signed in the Foxit iframe, didn't click confirm, then
+      // navigated away or logged out, and it asks to prepare again from
+      // scratch": the folder_id/signing_url were durably stored in Xano
+      // via attachEnvelope() the whole time, this component just never
+      // read them back after a fresh mount. Xano's values win over
+      // whatever's already in local state (it's the more trustworthy
+      // source — this component's own memory doesn't survive a reload
+      // at all, so there's nothing fresher to protect).
+      setPrepared((prev) => {
+        const seeded = { ...prev };
+        for (const w of warrants) {
+          if (w.foxit_folder_id) {
+            seeded[w.warrant_id] = { folder_id: w.foxit_folder_id, signing_url: w.foxit_signing_url ?? null, document_hash: w.document_hash };
+          }
+        }
+        return seeded;
+      });
     } catch (err) {
       // Was previously unhandled here (listWarrants() used to silently
       // return [] on an unrecognized response shape, so there was

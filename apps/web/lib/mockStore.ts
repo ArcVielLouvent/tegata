@@ -38,6 +38,14 @@ export interface MockWarrant {
   activated_at: string | null;
   expires_at: string | null;
   created_at: string;
+  // Real-signing pipeline fields (Phase 6 §13b) — only ever populated in
+  // xano mode, after prepareSignature()+attachEnvelope() has run for
+  // this warrant. Optional/undefined in mock mode (never set there) —
+  // see apiClient.ts's normalizeWarrant() for where these get read back
+  // from Xano.
+  document_id?: string | null;
+  foxit_folder_id?: string | number | null;
+  foxit_signing_url?: string | null;
 }
 
 const warrants = new Map<string, MockWarrant>();

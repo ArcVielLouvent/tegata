@@ -189,6 +189,15 @@ function normalizeWarrant(raw: any): MockWarrant {
       reason: raw.reason ?? raw.request?.reason ?? "",
       requested_duration_minutes: raw.requested_duration_minutes ?? raw.request?.requested_duration_minutes ?? 0,
       requested_by: raw.requested_by ?? raw.request?.requested_by,
+      // Both were missing entirely from this mapping before (confirmed
+      // 2026-08-30 while wiring the Foxit-embed persistence fix below) —
+      // ticket_ref silently never showed in xano mode's "My requests"
+      // list, and related_warrant_id (Stretch F, extension requests)
+      // would have silently broken the "(extension of ...)" UI note the
+      // moment it was tested in xano mode, the same "silent wrong result"
+      // failure class as unwrapWarrantList()'s bug.
+      ticket_ref: raw.ticket_ref ?? raw.request?.ticket_ref ?? null,
+      related_warrant_id: raw.related_warrant_id ?? raw.request?.related_warrant_id ?? null,
     },
     risk_score: {
       score,
@@ -216,6 +225,18 @@ function normalizeWarrant(raw: any): MockWarrant {
     activated_at: null, // Xano's GET /warrants response has no such field — not used for anything rendered in xano mode, unlike mock mode where it drives computeExpiresAt() locally
     expires_at: toIsoOrNull(raw.expires_at),
     created_at: toIsoOrNull(raw.created_at) ?? new Date().toISOString(),
+    // Foxit real-signing pipeline fields (§13b), stored on the warrant
+    // row by attach-envelope. Reading them back here — instead of only
+    // ever holding them in the Approver page's local React state — is
+    // the actual fix for "signed in the Foxit iframe but didn't click
+    // confirm yet, then navigated away/logged out, and it asks to
+    // prepare all over again": that was always a UI-state bug, not a
+    // backend one — the real folder_id/signing_url were already durably
+    // stored in Xano the whole time, the frontend just never read them
+    // back on reload. See app/approver/page.tsx's own comments.
+    document_id: raw.document_id ?? null,
+    foxit_folder_id: raw.foxit_folder_id ?? null,
+    foxit_signing_url: raw.foxit_signing_url ?? null,
   } as MockWarrant;
 }
 

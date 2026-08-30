@@ -16,6 +16,7 @@ const nextConfig = {
     outputFileTracingIncludes: {
       "/api/documents/prepare/route": ["./assets/tegata-warrant.docx"],
       "/api/documents/generate-dual/route": ["./assets/tegata-warrant.docx", "./assets/tegata-runbook.docx"],
+      "/api/documents/generate-progressive/route": ["./assets/tegata-warrant-progressive.docx"],
     },
   },
 };
