@@ -1,118 +1,238 @@
 :root {
-  --ink: #1a1a1a;
-  --paper: #fbfaf7;
-  --line: #d8d4c8;
-  --accent: #8a2b2b; /* seal-red, nod to a stamped travel permit */
-  --low: #2f6b3a;
-  --medium: #a16a1a;
-  --high: #8a2b2b;
+  /* Washi paper + sumi ink + hanko vermillion + ai indigo — a small,
+     restrained Japanese palette rather than a generic light theme.
+     Named after their traditional references so future edits keep the
+     intent: this is meant to feel like a stamped travel permit, not a
+     SaaS dashboard. */
+  --washi: #faf6ee;
+  --washi-deep: #f2ecdd;
+  --sumi: #1c1a17;
+  --sumi-soft: #4a453e;
+  --line: #ddd4bf;
+  --line-soft: #e8e1d0;
+  --hanko: #b1402c; /* vermillion seal-ink red */
+  --hanko-deep: #8f2f1f;
+  --ai: #2a4a5c; /* indigo, secondary accent */
+  --low: #3d6b45;
+  --medium: #a1701f;
+  --high: var(--hanko);
   --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  --brush: "Yuji Mai", "Hiragino Mincho ProN", serif;
+  --shadow-soft: 0 1px 2px rgba(28, 26, 23, 0.04), 0 4px 14px rgba(28, 26, 23, 0.05);
 }
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
-  background: var(--paper);
-  color: var(--ink);
+  /* A faint paper-fiber texture via layered radial gradients — no image
+     asset needed, stays crisp at any size, and keeps the page from
+     reading as a flat, generic light-mode background. */
+  background-color: var(--washi);
+  background-image:
+    radial-gradient(circle at 20% 15%, rgba(177, 64, 44, 0.025), transparent 45%),
+    radial-gradient(circle at 85% 75%, rgba(42, 74, 92, 0.025), transparent 40%);
+  background-attachment: fixed;
+  color: var(--sumi);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-  line-height: 1.5;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
 }
 
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 1rem 1.5rem;
+  padding: 1.1rem 1.75rem;
   border-bottom: 1px solid var(--line);
+  background: rgba(250, 246, 238, 0.85);
+  backdrop-filter: blur(6px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
-.brand { font-size: 1.1rem; }
-.brand-name { font-weight: 600; letter-spacing: 0.02em; }
+.brand {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  text-decoration: none;
+  color: var(--sumi);
+}
+.brand-kanji {
+  font-family: var(--brush);
+  font-size: 1.65rem;
+  color: var(--hanko);
+  line-height: 1;
+}
+.brand-name {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  font-size: 1.02rem;
+}
 
 nav a {
-  margin-left: 1.25rem;
-  color: var(--ink);
+  margin-left: 1.4rem;
+  color: var(--sumi-soft);
   text-decoration: none;
+  font-size: 0.92rem;
+  padding-bottom: 3px;
   border-bottom: 2px solid transparent;
+  transition: color 0.15s ease, border-color 0.15s ease;
 }
-nav a:hover { border-bottom-color: var(--accent); }
+nav a:hover { color: var(--sumi); border-bottom-color: var(--hanko); }
 
 .page {
-  max-width: 760px;
+  max-width: 780px;
   margin: 0 auto;
-  padding: 2rem 1.5rem 4rem;
+  padding: 2.5rem 1.5rem 4rem;
 }
 
-h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
-.subtitle { color: #6b6b6b; margin-top: 0; margin-bottom: 1.75rem; font-size: 0.92rem; }
+h1 {
+  font-size: 1.5rem;
+  margin-bottom: 0.3rem;
+  letter-spacing: -0.01em;
+}
+.subtitle { color: var(--sumi-soft); margin-top: 0; margin-bottom: 1.85rem; font-size: 0.92rem; max-width: 58ch; }
 
-label { display: block; font-size: 0.85rem; margin-bottom: 0.3rem; margin-top: 1rem; }
+label { display: block; font-size: 0.84rem; margin-bottom: 0.35rem; margin-top: 1.1rem; color: var(--sumi-soft); font-weight: 500; }
 input, select, textarea {
   width: 100%;
-  padding: 0.55rem 0.65rem;
+  padding: 0.6rem 0.75rem;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: 6px;
   font-size: 0.95rem;
-  background: white;
+  background: #fffdf9;
   font-family: inherit;
+  color: var(--sumi);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--ai);
+  box-shadow: 0 0 0 3px rgba(42, 74, 92, 0.12);
 }
 textarea { min-height: 5rem; resize: vertical; }
 
 button {
   cursor: pointer;
-  border: 1px solid var(--ink);
-  background: var(--ink);
-  color: var(--paper);
-  padding: 0.55rem 1.1rem;
-  border-radius: 4px;
+  border: 1px solid var(--sumi);
+  background: var(--sumi);
+  color: var(--washi);
+  padding: 0.6rem 1.2rem;
+  border-radius: 6px;
   font-size: 0.9rem;
+  font-weight: 500;
   margin-top: 1.25rem;
+  transition: transform 0.1s ease, opacity 0.15s ease, box-shadow 0.15s ease;
 }
-button:hover { opacity: 0.85; }
-button:disabled { opacity: 0.5; cursor: not-allowed; }
-button.secondary { background: transparent; color: var(--ink); }
-button.danger { background: var(--accent); border-color: var(--accent); color: white; }
+button:hover:not(:disabled) { opacity: 0.88; box-shadow: var(--shadow-soft); }
+button:active:not(:disabled) { transform: translateY(1px); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button.secondary { background: transparent; color: var(--sumi); border-color: var(--line); }
+button.secondary:hover:not(:disabled) { border-color: var(--sumi); box-shadow: none; }
+button.danger { background: var(--hanko); border-color: var(--hanko); color: white; }
 
 .card {
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 1.1rem 1.25rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  padding: 1.25rem 1.4rem;
   margin-bottom: 1rem;
-  background: white;
+  background: #fffdf9;
+  box-shadow: var(--shadow-soft);
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
 }
+.card:hover { border-color: var(--line); }
 
+/* Status/risk badges styled like a small ink stamp — a solid block of
+   colour with a hairline border of a darker shade of itself, rounded
+   just enough to read as a mark rather than a UI chip. */
 .badge {
   display: inline-block;
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-family: var(--mono);
-  padding: 0.15rem 0.5rem;
-  border-radius: 3px;
+  padding: 0.2rem 0.55rem;
+  border-radius: 4px;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
   color: white;
+  line-height: 1.4;
 }
 .badge.low { background: var(--low); }
 .badge.medium { background: var(--medium); }
 .badge.high { background: var(--high); }
-.badge.status { background: #555; }
+.badge.status { background: var(--ai); }
+.badge.status.muted { background: #8a8578; }
 
 .banner {
-  padding: 0.75rem 1rem;
-  border-radius: 6px;
+  padding: 0.8rem 1.05rem;
+  border-radius: 8px;
   margin: 1rem 0;
   font-size: 0.9rem;
+  border: 1px solid transparent;
 }
-.banner.error { background: #fbe8e8; border: 1px solid var(--accent); color: #6b1f1f; }
-.banner.success { background: #eaf3ec; border: 1px solid var(--low); color: #204d29; }
+.banner.error { background: #fbeae6; border-color: var(--hanko); color: var(--hanko-deep); }
+.banner.success { background: #eaf1e9; border-color: var(--low); color: #204d29; }
 
 .mono { font-family: var(--mono); font-size: 0.82rem; word-break: break-all; }
-.muted { color: #6b6b6b; font-size: 0.85rem; }
+.muted { color: var(--sumi-soft); font-size: 0.85rem; }
 .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
 
 .chain-entry {
   border-left: 3px solid var(--line);
-  padding: 0.4rem 0 0.4rem 0.8rem;
-  margin-bottom: 0.4rem;
+  padding: 0.45rem 0 0.45rem 0.85rem;
+  margin-bottom: 0.45rem;
 }
-.chain-entry.broken { border-left-color: var(--accent); }
+.chain-entry.broken { border-left-color: var(--hanko); }
+
+/* Approver page: section headers separating "needs your action" from
+   "history" — a small kanji-flavoured label rather than a plain
+   uppercase UI heading, to keep the same visual language as the brand
+   mark instead of falling back to generic dashboard styling. */
+.section-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin: 2rem 0 0.9rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--line-soft);
+}
+.section-heading:first-of-type { margin-top: 0.5rem; }
+.section-heading .kanji-mark {
+  font-family: var(--brush);
+  font-size: 1.2rem;
+  color: var(--hanko);
+  line-height: 1;
+}
+.section-heading h2 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--sumi);
+  text-transform: none;
+}
+.section-heading .count {
+  font-size: 0.8rem;
+  color: var(--sumi-soft);
+  font-family: var(--mono);
+}
+
+.card.dimmed {
+  opacity: 0.62;
+  box-shadow: none;
+}
+.card.dimmed:hover { opacity: 0.85; }
+
+.timestamp {
+  font-size: 0.78rem;
+  color: var(--sumi-soft);
+}
+
+details.history-toggle summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--sumi-soft);
+  padding: 0.4rem 0;
+  user-select: none;
+}
+details.history-toggle summary:hover { color: var(--sumi); }

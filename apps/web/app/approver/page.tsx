@@ -12,19 +12,42 @@ interface PreparedEnvelope {
   document_hash: string;
 }
 
+type Message = { kind: "success" | "error"; text: string };
+
+/** Statuses where an approver still has something to do. Everything
+ * else (scored/active/expired/revoked/expired_unapproved, plus
+ * "requested" if ever seen mid-flight) is history — either already
+ * resolved, or (in the case of "scored") permanently stuck from before
+ * the pending_approval transition existed, per PROJECT_STATUS.md. */
+const ACTIONABLE_STATUSES = new Set(["pending_approval", "signed"]);
+
+function formatRelativeTime(iso: string | null): string {
+  if (!iso) return "";
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return "";
+  const diffSeconds = Math.round((Date.now() - then) / 1000);
+  if (diffSeconds < 60) return "just now";
+  const diffMinutes = Math.round(diffSeconds / 60);
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.round(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
 export default function ApproverPage() {
   const { user, token, loading: authLoading } = useAuth();
   const [warrants, setWarrants] = useState<MockWarrant[]>([]);
   const [loading, setLoading] = useState(true);
   const [signerEmail, setSignerEmail] = useState("approver@example.com");
-  const [messages, setMessages] = useState<Record<string, { kind: "success" | "error"; text: string }>>({});
+  const [messages, setMessages] = useState<Record<string, Message>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [prepared, setPrepared] = useState<Record<string, PreparedEnvelope>>({});
+  const [listError, setListError] = useState<string | null>(null);
 
   const needsLogin = apiMode() === "xano" && !authLoading && !token;
   const effectiveSignerEmail = apiMode() === "xano" ? user?.email || signerEmail : signerEmail;
-
-  const [listError, setListError] = useState<string | null>(null);
 
   async function refresh() {
     setLoading(true);
@@ -139,6 +162,85 @@ export default function ApproverPage() {
     );
   }
 
+  const sorted = [...warrants].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+  const needsAction = sorted.filter((w) => ACTIONABLE_STATUSES.has(w.status));
+  const history = sorted.filter((w) => !ACTIONABLE_STATUSES.has(w.status));
+
+  function renderCard(w: MockWarrant, dimmed: boolean) {
+    const msg = messages[w.warrant_id];
+    return (
+      <div className={`card${dimmed ? " dimmed" : ""}`} key={w.warrant_id} data-testid={`warrant-card-${w.warrant_id}`}>
+        <div className="row" style={{ justifyContent: "space-between" }}>
+          <strong>{w.request.resource || "(resource unknown)"}</strong>
+          <span className="timestamp">{formatRelativeTime(w.created_at)}</span>
+        </div>
+        <p className="muted" style={{ margin: "0.15rem 0 0.6rem" }}>
+          {w.request.reason || "(no reason given)"} · requested by {w.request.requested_by || "unknown"}
+        </p>
+        <div className="row" style={{ marginBottom: "0.6rem" }}>
+          <span className={`badge ${w.risk_score.tier}`}>{w.risk_score.tier} risk</span>
+          <span className={`badge status${dimmed ? " muted" : ""}`} data-testid={`warrant-status-${w.warrant_id}`}>
+            {w.status}
+          </span>
+          <span className="mono muted" style={{ fontSize: "0.72rem" }}>
+            {w.warrant_id}
+          </span>
+        </div>
+        <p style={{ marginBottom: "0.6rem" }}>
+          Signatures: <strong data-testid={`signature-count-${w.warrant_id}`}>{w.signatures.length}</strong> /{" "}
+          {w.approval_requirement.required_approver_count} required
+          {w.expires_at && w.status === "active" ? ` · expires ${new Date(w.expires_at).toLocaleTimeString()}` : ""}
+        </p>
+
+        <div className="row">
+          {apiMode() === "xano" && w.status === "pending_approval" && w.approval_requirement.required_approver_count === 1 ? (
+            prepared[w.warrant_id]?.folder_id ? (
+              <div className="signing-panel">
+                {/* UNVERIFIED: assumes Foxit's embedded-signing URL
+                    actually allows framing (createEmbeddedSigningSession
+                    exists specifically for this, but the real
+                    X-Frame-Options/CSP behavior hasn't been confirmed
+                    from this sandbox). If the iframe below shows blank
+                    or a browser console framing error, that's the first
+                    thing to check — the fallback is opening
+                    prepared[w.warrant_id].signing_url in a new tab
+                    instead of an <iframe>. */}
+                {prepared[w.warrant_id].signing_url ? (
+                  <iframe
+                    src={prepared[w.warrant_id].signing_url!}
+                    data-testid={`embed-${w.warrant_id}`}
+                    style={{ width: "100%", height: 600, border: "1px solid var(--line)", borderRadius: 8 }}
+                    title={`Foxit signing session for ${w.warrant_id}`}
+                  />
+                ) : (
+                  <p>No embedded signing_url in Foxit's response — check your email for the signing invite instead.</p>
+                )}
+                <button type="button" onClick={() => handleConfirm(w.warrant_id)} disabled={busy === w.warrant_id} data-testid={`confirm-${w.warrant_id}`}>
+                  {busy === w.warrant_id ? "Confirming…" : "I've signed — confirm"}
+                </button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => handlePrepare(w)} disabled={busy === w.warrant_id} data-testid={`prepare-${w.warrant_id}`}>
+                {busy === w.warrant_id ? "Generating document…" : "Prepare & send for e-signature"}
+              </button>
+            )
+          ) : (
+            <button type="button" onClick={() => handleSign(w.warrant_id)} disabled={busy === w.warrant_id} data-testid={`sign-${w.warrant_id}`}>
+              {busy === w.warrant_id ? "Signing…" : w.status === "active" ? "Replay attempt (sign again)" : "Sign"}
+            </button>
+          )}
+          <Link href={`/audit/${w.warrant_id}`}>View audit trail →</Link>
+        </div>
+
+        {msg && (
+          <div className={`banner ${msg.kind}`} data-testid={`warrant-message-${w.warrant_id}`} style={{ marginBottom: 0, marginTop: "0.75rem" }}>
+            {msg.text}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <>
       <h1>Approve access requests</h1>
@@ -176,83 +278,29 @@ export default function ApproverPage() {
 
       {warrants.length === 0 && !loading && !listError && <p className="muted">No requests yet — submit one from the Requester view.</p>}
 
-      <div data-testid="warrant-list" style={{ marginTop: "1.25rem" }}>
-        {warrants.map((w) => {
-          const msg = messages[w.warrant_id];
-          return (
-            <div className="card" key={w.warrant_id} data-testid={`warrant-card-${w.warrant_id}`}>
-              <div className="row">
-                <strong className="mono">{w.warrant_id}</strong>
-                <span className={`badge ${w.risk_score.tier}`}>{w.risk_score.tier} risk</span>
-                <span className="badge status" data-testid={`warrant-status-${w.warrant_id}`}>
-                  {w.status}
-                </span>
-              </div>
-              <p className="muted" style={{ marginBottom: "0.4rem" }}>
-                {w.request.resource} · {w.request.reason} · requested by {w.request.requested_by || "unknown"}
-              </p>
-              <p style={{ marginBottom: "0.4rem" }}>
-                Signatures: <strong data-testid={`signature-count-${w.warrant_id}`}>{w.signatures.length}</strong> /{" "}
-                {w.approval_requirement.required_approver_count} required
-                {w.expires_at && w.status === "active" ? ` · expires ${new Date(w.expires_at).toLocaleTimeString()}` : ""}
-              </p>
-
-              <div className="row">
-                {apiMode() === "xano" && w.status === "pending_approval" && w.approval_requirement.required_approver_count === 1 ? (
-                  prepared[w.warrant_id]?.folder_id ? (
-                    <div className="signing-panel">
-                      {/* UNVERIFIED: assumes Foxit's embedded-signing URL
-                          actually allows framing (createEmbeddedSigningSession
-                          exists specifically for this, but the real
-                          X-Frame-Options/CSP behavior hasn't been confirmed
-                          from this sandbox). If the iframe below shows blank
-                          or a browser console framing error, that's the first
-                          thing to check — the fallback is opening
-                          prepared[w.warrant_id].signing_url in a new tab
-                          instead of an <iframe>. */}
-                      {prepared[w.warrant_id].signing_url ? (
-                        <>
-                          {/* True inline embed ("web in web"), not a new-tab
-                              link — this is what createEmbeddedSigningSession
-                              in the Foxit call is actually for. Falls back to
-                              the "check your email" message below if Foxit's
-                              response had no signing_url (extractSigningUrl()
-                              in foxitClient.ts couldn't find one). */}
-                          <iframe
-                            src={prepared[w.warrant_id].signing_url!}
-                            data-testid={`embed-${w.warrant_id}`}
-                            style={{ width: "100%", height: 600, border: "1px solid #ccc" }}
-                            title={`Foxit signing session for ${w.warrant_id}`}
-                          />
-                        </>
-                      ) : (
-                        <p>No embedded signing_url in Foxit's response — check your email for the signing invite instead.</p>
-                      )}
-                      <button type="button" onClick={() => handleConfirm(w.warrant_id)} disabled={busy === w.warrant_id} data-testid={`confirm-${w.warrant_id}`}>
-                        {busy === w.warrant_id ? "Confirming…" : "I've signed — confirm"}
-                      </button>
-                    </div>
-                  ) : (
-                    <button type="button" onClick={() => handlePrepare(w)} disabled={busy === w.warrant_id} data-testid={`prepare-${w.warrant_id}`}>
-                      {busy === w.warrant_id ? "Generating document…" : "Prepare & send for e-signature"}
-                    </button>
-                  )
-                ) : (
-                  <button type="button" onClick={() => handleSign(w.warrant_id)} disabled={busy === w.warrant_id} data-testid={`sign-${w.warrant_id}`}>
-                    {busy === w.warrant_id ? "Signing…" : w.status === "active" ? "Replay attempt (sign again)" : "Sign"}
-                  </button>
-                )}
-                <Link href={`/audit/${w.warrant_id}`}>View audit trail →</Link>
-              </div>
-
-              {msg && (
-                <div className={`banner ${msg.kind}`} data-testid={`warrant-message-${w.warrant_id}`} style={{ marginBottom: 0 }}>
-                  {msg.text}
-                </div>
-              )}
+      <div data-testid="warrant-list">
+        {needsAction.length > 0 && (
+          <>
+            <div className="section-heading">
+              <span className="kanji-mark">要</span>
+              <h2>Needs your action</h2>
+              <span className="count">({needsAction.length})</span>
             </div>
-          );
-        })}
+            {needsAction.map((w) => renderCard(w, false))}
+          </>
+        )}
+
+        {history.length > 0 && (
+          <details className="history-toggle" style={{ marginTop: needsAction.length > 0 ? "1.5rem" : 0 }}>
+            <summary>
+              <span className="kanji-mark" style={{ fontFamily: "var(--brush)", color: "var(--hanko)", marginRight: "0.4rem" }}>
+                済
+              </span>
+              History ({history.length}) — settled, expired, or stuck before a state-machine fix (see PROJECT_STATUS.md)
+            </summary>
+            <div style={{ marginTop: "0.75rem" }}>{history.map((w) => renderCard(w, true))}</div>
+          </details>
+        )}
       </div>
     </>
   );
