@@ -1,0 +1,58 @@
+name: Phase 7 — Stretch Features
+
+on:
+  push:
+    branches:
+      - "phase/7-*"
+      - main
+    paths:
+      - "apps/agent/**"
+      - "apps/web/**"
+      - "docs/xano-setup.md"
+      - "docs/tegata-concept.md"
+      - ".github/workflows/phase-7.yml"
+  pull_request:
+    branches: [main, "phase/6-*"]
+
+jobs:
+  # Starts as a straight copy of the Phase 0-6 pattern (Python regression
+  # + TS typecheck/build) — each stretch feature below adds its own
+  # test file to the pytest line as it lands, same as every prior phase
+  # did. No feature-specific job yet since nothing in ROADMAP.md's
+  # Phase 7 list has been implemented in this branch yet — see
+  # PROJECT_STATUS.md's Phase 7 planning section for what's queued and
+  # in what order.
+  python-regression:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Ruff lint
+        run: ruff check src tests
+      - name: Full regression (all phases, not just Phase 7 additions)
+        run: pytest -v
+
+  web-typecheck-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies (root workspace)
+        run: npm install
+      - name: Typecheck apps/web
+        working-directory: apps/web
+        run: npx tsc --noEmit
+      - name: Production build
+        working-directory: apps/web
+        env:
+          NEXT_PUBLIC_API_MODE: mock
+        run: npx next build

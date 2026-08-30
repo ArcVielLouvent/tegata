@@ -873,3 +873,75 @@ fix is confirmed by reading the render logic and matching it exactly
 against the CI failure's error output, not by re-running the suite.
 Run `npm run test:e2e` locally or push to CI to get that final
 confirmation before merging to `main`.
+
+## Phase 7 branch opened (2026-08-30) — separate from Phase 6, stacked on top of it
+
+Per Armand's instruction: Phase 7 gets its OWN branch
+(`phase/7-stretch-features`) rather than being folded into Phase 6's
+commits, but it's branched from Phase 6's current tip (`d32c87b`,
+NOT `main`) since Phase 6 still has open bugs (see the section right
+above this one and the "Still open (Xano-side...)" notes in the
+`eafd9eb`/`05c39ef`/`d32c87b` commit messages) and hasn't merged to
+`main` yet. `.github/workflows/phase-7.yml` added, mirroring the
+Phase 0-6 CI pattern (Python regression + TS typecheck/build) — no
+feature-specific job yet since nothing below has real code in this
+branch yet.
+
+**SECURITY REMINDER carried over from `05c39ef`'s commit message,
+not yet acted on:** Armand pasted real Foxit `client_id`/
+`client_secret` values in chat while sharing dashboard sample code
+for diagnosis. Treat those as exposed — rotate them in the Foxit
+dashboard, independent of whether Phase 6's signing pipeline is
+confirmed working yet.
+
+### Phase 7 scope, in `docs/tegata-concept.md`'s own suggested order (C→B→E→A→D)
+
+`docs/tegata-concept.md` §7 explains the ordering rationale: hash-chain
+and OCR-check "most directly reinforce the core security argument and
+are cheapest to build," redaction/canary "need more additional state."
+ROADMAP.md's numbered list is priority order too but doesn't carry
+this reasoning — recorded here so it isn't lost again.
+
+1. **Hash-chained audit log demo (Xano)** — the hashing PRIMITIVE
+   already exists and is tested (`audit_log.py`, built in Phase 5 —
+   see that file's own SCOPE NOTE docstring, added this session to
+   stop this from getting "rediscovered" as un-built). What Phase 7
+   actually adds: the live demo moment — deliberately corrupt a stored
+   row in the real Xano `audit_log` table, show `verify_chain()`-style
+   detection catch it on camera. Needs: a Xano-side `/audit/verify`
+   (or similar) endpoint exposing the same check server-side, wired to
+   a UI element.
+2. **OCR self-consistency check (Foxit)** — re-run Foxit's OCR on a
+   generated PDF's rendered output, compare against the original text/
+   metadata layer; a mismatch signals a layer-mismatch attack. No
+   groundwork exists yet. Needs Foxit's OCR/text-extraction endpoint
+   confirmed (same "read real docs first" rule as the signing
+   pipeline — don't repeat the multipart-vs-base64 guessing mistake).
+3. **Dual-audience document generation (Doctavian)** — one data
+   payload, two documents: the formal warrant (existing) + an internal
+   runbook for the on-call engineer (technical, copy-paste-ready,
+   expiry reminders). `template_builder.py`/`doctavian_client.py`'s
+   `generate_document()` already supports arbitrary templates — this
+   is mostly a second template + a second `generate_document()` call
+   with the same variables, not new client code.
+4. **Progressive disclosure via redaction (Foxit)** — for a 2-approver
+   (high-risk) warrant, technical clauses stay redacted until the
+   first signature, then a less-redacted v2 regenerates for the second
+   approver. Needs Foxit's redaction API confirmed (unexplored so
+   far) and a second document-generation pass triggered by the
+   first-signature event.
+5. **Synthetic canary warrant (Xano)** — a scheduled Xano task sends a
+   fake low-risk warrant through the full pipeline (through Doctavian,
+   up to signature-ready in Foxit) as a live health check. Needs a
+   Xano scheduled-task endpoint; otherwise reuses everything else
+   already built.
+
+**Not started in this branch yet** — this commit is scaffolding only
+(branch + CI). Phase 6's own open bugs (GET /warrants "Missing param:
+status", /score not transitioning to pending_approval, the generic
+"Precondition failed" on /warrants/transition, Foxit's createfolder
+end-to-end not yet confirmed working) are Phase 6 concerns and stay
+tracked there, not duplicated into this section — Phase 7 stretch work
+assumes Core is stable, per `tegata-concept.md`'s own scope-discipline
+rule, so realistically none of items 1-5 above should get real code
+until those are resolved.
