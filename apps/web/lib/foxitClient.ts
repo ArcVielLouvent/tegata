@@ -179,7 +179,8 @@ export async function createEnvelopeFromBinary(
     createEmbeddedSigningSession?: boolean;
   }
 ): Promise<any> {
-  const dataPayload = {
+  const wantsEmbedded = opts.createEmbeddedSigningSession ?? true;
+  const dataPayload: any = {
     folderName: opts.folderName,
     inputType: "base64",
     base64FileString: [opts.pdfBuffer.toString("base64")],
@@ -187,8 +188,19 @@ export async function createEnvelopeFromBinary(
     parties: opts.parties.map((p, i) => partyToBody(p, i)),
     fields: opts.fields.map((f, i) => fieldToBody(f, i)),
     sendNow: opts.sendNow ?? true,
-    createEmbeddedSigningSession: opts.createEmbeddedSigningSession ?? true,
+    createEmbeddedSigningSession: wantsEmbedded,
   };
+  // CONFIRMED required alongside createEmbeddedSigningSession:true —
+  // Foxit's real error (2026-08-30, surfaced correctly for the first
+  // time thanks to the error_description fix above): "email id of
+  // embedded signer(s) not submitted". Matches the documented example
+  // (developersguide.foxitesign.foxit.com) showing
+  // embeddedSignersEmailIds as a separate array alongside the boolean
+  // flag — every party we want an embedded (in-browser) session for,
+  // not implied automatically by the flag alone.
+  if (wantsEmbedded) {
+    dataPayload.embeddedSignersEmailIds = opts.parties.map((p) => p.email);
+  }
 
   const res = await fetch(`${config.baseUrl}/v1/folders/createfolder`, {
     method: "POST",
