@@ -2,9 +2,92 @@
 
 > This file is the project's "memory" that travels with the repo. Every new work session should start by reading this file, not by assuming.
 
-**Last updated:** 2026-08-25 (Phase 5 complete)
-**Hackathon deadline:** September 3, 2026, 10:00 PDT
+**Last updated:** 2026-08-30
+**Hackathon deadline:** September 3, 2026, 10:00 PDT — **4 days left as of this update**
 **Target:** Foxit, Xano, Doctavian tracks + Overall Winner (DevNetwork [API+Cloud+AI] Hackathon 2026)
+
+## ⚡ Quick Orientation — read this before anything else below
+
+Detailed history follows chronologically further down this file (every
+section header has a date). If you only have time to read one section,
+read this one.
+
+**What's CONFIRMED working end-to-end against real Xano (not mock)
+right now:**
+- Register (auto-logs in) / login, both roles (`requester` default,
+  `approver` set manually in Xano's Database tab — see §9d in
+  `docs/xano-setup.md`).
+- Submit a request → real risk score, tier, approver count, all
+  correctly displayed (`POST /score`).
+- Warrant correctly reaches `pending_approval` (was stuck at `scored`
+  forever until 2026-08-29's fix).
+- `GET /warrants` returns real resource/reason/requested_by (was
+  blank/"unknown" until 2026-08-29's fix) and supports a genuinely
+  optional `status` filter.
+- The **simplified** sign path (`POST /warrants/transition` directly to
+  `active`, bypassing real Foxit) works for `required_approver_count===1`
+  warrants: RBAC correctly blocks the requester from self-approving,
+  correctly allows an `approver` account, and replay rejection works.
+
+**What's IN PROGRESS, actively being debugged this session (2026-08-30)
+— the REAL Doctavian+Foxit signing pipeline, not the simplified path
+above:**
+- `POST /api/documents/prepare` (Doctavian generate + Foxit
+  createfolder) now succeeds for real — confirmed via a real successful
+  response from Foxit (folder actually created, embedded signing
+  session generated).
+- `folderId`/`signingUrl` extraction from that real response was just
+  fixed (commit "Fix folderId/signingUrl extraction with the CONFIRMED
+  real Foxit response shape") — real keys are `envelope.folder.folderId`
+  and `envelope.embeddedSigningSessions[0].embeddedSessionURL`, neither
+  of which any earlier guess had tried.
+- **NOT YET RETESTED after that fix.** The immediate next step for
+  whoever picks this up: retest "Prepare & send for e-signature" on a
+  `pending_approval` warrant with `required_approver_count===1`. If
+  `attachEnvelope()` (calls Xano's `POST /warrants/attach-envelope`)
+  and the embedded `<iframe>` both work, move on to actually signing in
+  the iframe and clicking "I've signed — confirm" (calls Xano's
+  `POST /warrants/confirm-signature`, §13c in `docs/xano-setup.md` —
+  this endpoint's real Foxit-status-field name was never confirmed;
+  the 2026-08-30 successful createfolder response shows
+  `envelopeStatus`/`folderStatus` fields with value `"SHARED"`
+  pre-signing, which is almost certainly the field to check for
+  `"COMPLETED"` post-signing — pass this along to Xano if that
+  endpoint's precondition still needs fixing).
+
+**Known permanent limitation, not a bug:** any warrant stuck at status
+`scored` (created before the `pending_approval` transition fix) can
+never be signed — `scored -> active` is not a valid state-machine
+transition and never will be. These show up in the Approver page's
+collapsed "History" section. Fine to leave as clutter for now; delete
+them from Xano's Database tab before recording a final demo video.
+
+**Repo/branch state:** everything is on `phase/6-frontend-demo`, never
+merged to `main`. This has been deferred since Phase 3 and should
+happen once the real signing pipeline above is confirmed working, not
+before.
+
+**UI redesign (2026-08-30):** a Japanese-calligraphy visual pass
+happened (brush-font kanji, refined palette, Approver page split into
+"needs action" vs collapsed "history"). Armand's own assessment: doesn't
+look meaningfully different from before, and may hand this specific
+aspect to a different tool/AI rather than iterate further here. Don't
+assume more visual-design requests are wanted unless explicitly asked
+again — focus stayed on bug fixes after this feedback.
+
+**Working style note for whoever picks this up:** this project's Xano
+backend has been debugged almost entirely through a loop of (1) Claude
+proposes a specific, copy-pasteable prompt for Armand to paste into
+Xano's own AI agent, (2) Armand pastes the response back, (3) Claude
+verifies the claim against actual test results rather than trusting
+the description at face value (this caught real discrepancies multiple
+times — e.g. a described `text? ticket_ref` turned out to behave
+differently than described). Keep doing this — it's working. Do not
+guess at Xano Function Stack internals or Foxit/Doctavian response
+shapes; ask for the real thing, verify empirically (Armand can check
+browser DevTools Network tab's Response — not just Payload — for any
+call), and only fix based on confirmed data. This has been the single
+most effective pattern this entire project.
 
 ## Concept Summary
 See `docs/tegata-concept.md` for the full spec. In short: a time-boxed access authorization system where the LLM only proposes (NLU front-door), the system (hard schema validation + Xano) decides, Doctavian assembles a risk-scored conditional document, Foxit provides the two-way signing + verification layer, and everything auto-expires with a permanent audit trail.
@@ -631,3 +714,92 @@ into `.env.local`, and — since Armand is running `next build` +
 start` process after any `.env.local` edit (server-only env vars are
 read at process start, same restart requirement as `next dev`, just
 less obvious when the workflow is build-once-serve).
+
+## Session summary, 2026-08-30: Foxit real-signing pipeline debugging + UI redesign
+
+Long session, many small fixes chained together as each one revealed
+the next. In order:
+
+1. **`normalizeWarrant()` field mapping fixed against a CONFIRMED
+   verbatim `GET /warrants` response** (Xano's dev pasted the actual
+   raw JSON — first time seen, not guessed). Two real bugs this
+   revealed: the four `factor_*` fields have different names AND order
+   than this repo's own `ScoreBreakdown` type (was silently falling
+   through to a hardcoded `{0,0,0,0}` for every real warrant), and
+   `created_at`/`expires_at` are epoch milliseconds, not ISO strings.
+   Also confirmed NOT a frontend bug: `resource`/`reason`/`requested_by`
+   were genuinely absent from the response at the time (Xano hadn't
+   added the join yet) — this was later fixed Xano-side same session.
+
+2. **Foxit `createEnvelopeFromBinary` rewritten from multipart to
+   `inputType:"base64"`.** The real 403 Armand hit was a wrong upload
+   method entirely, not bad credentials (separately confirmed via a
+   live curl test with the same client_id/client_secret against a
+   different endpoint, which worked). Foxit's own dashboard quickstart
+   only shows `inputType:"url"` (fetching from a public URL — not
+   usable here, Doctavian generates the PDF in-memory with no public
+   hosting). Confirmed the base64 method via Foxit's official docs plus
+   independent third-party integration examples. Enriched
+   `Party`/`SignatureField` shape to match Foxit's real dashboard
+   sample (`tabOrder`, `partyResponsible` were missing entirely). Also
+   fixed `handleResponse()`: only checked an error's `message` field,
+   missing the CONFIRMED real field name `error_description` (from the
+   same curl test) — every prior Foxit error was likely showing a
+   generic fallback instead of Foxit's actual stated reason. Also
+   handles Foxit returning a body-level `{result:"error"}` with HTTP
+   200 rather than a 4xx status.
+
+3. **`embeddedSignersEmailIds` added.** The base64 rewrite immediately
+   surfaced (correctly, thanks to fix #2's error_description handling)
+   a real Foxit error: `createEmbeddedSigningSession:true` needs a
+   *separate* `embeddedSignersEmailIds` array — not implied by the
+   boolean flag alone. Confirmed via Foxit's documented example.
+
+4. **`folderId`/`signingUrl` extraction fixed against a CONFIRMED real
+   successful `createfolder` response** (Foxit actually created a real
+   folder+envelope+embedded signing session this time — first genuine
+   success). Real keys, neither guessed correctly before:
+   `envelope.folder.folderId` (not top-level, not under `result` — that
+   field is a plain string `"success"`) and
+   `envelope.embeddedSigningSessions[0].embeddedSessionURL` (an array
+   of per-signer sessions keyed by `emailIdOfSigner`, not
+   `embeddedSigningUrl`/`signingUrl` at any level tried before).
+   Verified by writing the exact real JSON into a standalone Node
+   script and running the actual extraction functions against it
+   directly, not just eyeballing the code. `prepare/route.ts` also now
+   fails loudly (502 + full `raw_envelope` in the response) if
+   extraction ever fails again, instead of silently sending `null`
+   downstream to Xano where it surfaces as a confusing, seemingly
+   unrelated "Missing param" error.
+
+5. **UI redesign** (Japanese calligraphy visual identity): brush-font
+   kanji (Yuji Mai, loaded via `<link>` not `next/font/google` so the
+   build doesn't need network access to Google's font CDN), refined
+   washi/sumi/hanko/ai palette, Approver page split into "needs your
+   action" (sorted newest-first) vs. a collapsed "history" section
+   (warrants permanently stuck at `scored`, or otherwise resolved).
+   **Armand's own assessment: didn't feel meaningfully different from
+   before** — may hand this specific aspect to a different tool. Don't
+   invest further design effort here unless explicitly asked again.
+
+**Xano-side fixes confirmed published this same session** (via the
+Claude-proposes-prompt / Armand-pastes-response / Claude-verifies loop
+described in the Quick Orientation section above): the `|trim`-on-null
+crash in `function/score.xs`'s history-lookup query (moved
+normalization out of the `db.query` where-clause into a local
+variable), `ticket_ref` genuinely optional (`text? ticket_ref?` — two
+`?`s, one for nullable-value, one for optional-key, a real XanoScript
+distinction that isn't obvious), `append_audit_log` no longer requires
+callers to supply `prev_hash` (looks up the previous entry internally
+now), `/score` now actually transitions `scored -> pending_approval`
+(was silently stopping at `scored` forever before this), `GET
+/warrants` now joins in `resource`/`reason`/`requested_by` and its
+`status` filter is genuinely optional (`text? status?`, same two-`?`
+pattern as ticket_ref), and `POST /auth/signup` accepts an optional
+`role` (restricted to `requester`/`approver` only, never
+`security_admin`) used exclusively by the e2e test's direct API call,
+never exposed in the actual login/register UI.
+
+**Not done, not attempted this session:** merging `phase/6-frontend-demo`
+to `main` (still deferred, see Quick Orientation above), Phase 7
+stretch features, anything related to submission materials (Phase 8).
