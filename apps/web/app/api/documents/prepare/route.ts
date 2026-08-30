@@ -138,6 +138,10 @@ export async function POST(req: NextRequest) {
       createEmbeddedSigningSession: true,
     });
     const folderId =
+      // CONFIRMED (2026-08-30) from a real successful createfolder call
+      // — nested under `folder`, which none of the earlier guesses
+      // checked at all.
+      envelope.folder?.folderId ??
       envelope.folderId ??
       envelope.folder_id ??
       envelope.result?.folderId ??
@@ -155,13 +159,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error: "folder_id_extraction_failed",
-          message: `Foxit's createfolder call succeeded, but none of the guessed key names (folderId, folder_id, result.folderId, result.folder_id, data.folderId, data.folder_id, id) matched anything in the response. See raw_envelope below for the actual shape — find the real key and add it to prepare/route.ts's folderId extraction.`,
+          message: `Foxit's createfolder call succeeded, but none of the guessed key names matched anything in the response. See raw_envelope below for the actual shape — find the real key and add it to prepare/route.ts's folderId extraction.`,
           raw_envelope: envelope,
         },
         { status: 502 }
       );
     }
-    const signingUrl = extractSigningUrl(envelope);
+    const signingUrl = extractSigningUrl(envelope, body.approver.email);
 
     return NextResponse.json({
       warrant_id: body.warrant_id,

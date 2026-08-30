@@ -12,7 +12,7 @@ interface PreparedEnvelope {
   document_hash: string;
 }
 
-type Message = { kind: "success" | "error"; text: string };
+type Message = { kind: "success" | "error"; text: string; debug?: any };
 
 /** Statuses where an approver still has something to do. Everything
  * else (scored/active/expired/revoked/expired_unapproved, plus

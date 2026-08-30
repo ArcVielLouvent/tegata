@@ -228,14 +228,20 @@ export async function getEnvelopeDetails(config: FoxitConfig, folderId: string |
  * so the caller can fall back to "check your email" messaging instead
  * of crashing. Fix this function's key names once a real response is
  * seen. */
-export function extractSigningUrl(createFolderResponse: any): string | null {
+/** CONFIRMED shape (2026-08-30) from a real successful createfolder
+ * call: signing URLs live under embeddedSigningSessions[], one entry
+ * per embedded signer, each with emailIdOfSigner + embeddedSessionURL.
+ * Not nested under `result` or `parties` at all — every previous guess
+ * here was wrong. approverEmail lets multi-party envelopes pick the
+ * right signer's link instead of always returning the first one. */
+export function extractSigningUrl(createFolderResponse: any, approverEmail?: string): string | null {
   const r = createFolderResponse;
-  return (
-    r?.embeddedSigningUrl ??
-    r?.signingUrl ??
-    r?.result?.embeddedSigningUrl ??
-    r?.parties?.[0]?.embeddedSigningUrl ??
-    r?.parties?.[0]?.signingUrl ??
-    null
-  );
+  const sessions = r?.embeddedSigningSessions;
+  if (Array.isArray(sessions) && sessions.length > 0) {
+    const match = approverEmail ? sessions.find((s: any) => s?.emailIdOfSigner?.toLowerCase() === approverEmail.toLowerCase()) : undefined;
+    return (match ?? sessions[0])?.embeddedSessionURL ?? null;
+  }
+  // Older guesses kept as a fallback in case a different Foxit response
+  // variant (e.g. non-embedded / emailed flow) shows up later.
+  return r?.embeddedSigningUrl ?? r?.signingUrl ?? r?.result?.embeddedSigningUrl ?? r?.parties?.[0]?.embeddedSigningUrl ?? r?.parties?.[0]?.signingUrl ?? null;
 }
