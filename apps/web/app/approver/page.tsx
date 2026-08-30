@@ -326,7 +326,7 @@ export default function ApproverPage() {
 
         {history.length > 0 && (
           <details className="history-toggle" style={{ marginTop: needsAction.length > 0 ? "1.5rem" : 0 }}>
-            <summary>
+            <summary data-testid="history-toggle-summary">
               <span className="kanji-mark" style={{ fontFamily: "var(--brush)", color: "var(--hanko)", marginRight: "0.4rem" }}>
                 済
               </span>

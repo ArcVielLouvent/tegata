@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { AuthUser, clearStoredToken, fetchMe, getStoredToken, login as loginApi, register as registerApi, storeToken } from "./auth";
+import { AuthError, AuthUser, clearStoredToken, fetchMe, getStoredToken, login as loginApi, register as registerApi, storeToken } from "./auth";
 import { setAuthToken } from "./apiClient";
 
 interface AuthContextValue {
@@ -29,12 +29,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setAuthToken(stored);
       fetchMe(stored)
         .then(setUser)
-        .catch(() => {
-          // Stored token is stale/invalid — clear it rather than leaving
-          // the UI stuck believing it's authenticated.
-          clearStoredToken();
-          setAuthToken(null);
-          setToken(null);
+        .catch((err) => {
+          // Fixed 2026-08-31: this used to wipe the stored token on ANY
+          // fetchMe() failure — including a transient network blip, a
+          // CORS misconfig, or NEXT_PUBLIC_XANO_AUTH_ME_PATH being wrong
+          // for this workspace (flagged as unconfirmed in auth.ts's own
+          // module docstring). All of those are recoverable; none of
+          // them mean the token itself is invalid. That made a page
+          // refresh look exactly like "the session wasn't saved, log in
+          // again" even though the token in localStorage was fine the
+          // whole time. Only an actual 401/403 from Xano means the
+          // token itself is bad — everything else should keep the
+          // token and let the user retry (e.g. hit Refresh) instead of
+          // silently forcing a real re-login.
+          if (err instanceof AuthError && (err.status === 401 || err.status === 403)) {
+            clearStoredToken();
+            setAuthToken(null);
+            setToken(null);
+          } else {
+            setError(err instanceof Error ? err.message : String(err));
+          }
         })
         .finally(() => setLoading(false));
     } else {

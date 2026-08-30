@@ -31,6 +31,12 @@ test("low-risk request needs 1 approver; happy path reaches active", async ({ pa
   await expect(page.getByTestId(`warrant-status-${warrantId}`)).toHaveText("active");
   await expect(page.getByTestId(`warrant-message-${warrantId}`)).toContainText("activated");
 
+  // Once "active", the card moves out of "Needs your action" into the
+  // collapsed "History" <details> (see approver/page.tsx's
+  // ACTIONABLE_STATUSES) — expand it before interacting with anything
+  // inside, same as a real user would click the summary to open it.
+  await page.getByTestId("history-toggle-summary").click();
+
   // Audit trail should reflect the full chain, intact.
   await page.getByRole("link", { name: "View audit trail →" }).first().click();
   await expect(page).toHaveURL(new RegExp(`/audit/${warrantId}`));

@@ -19,9 +19,20 @@ import { apiMode } from "./apiClient";
  * would just lock everyone out of both pages during local dev.
  */
 export function RoleGate({ allow, children }: { allow: string[]; children: React.ReactNode }) {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
 
   if (apiMode() !== "xano") return <>{children}</>;
+
+  // Fixed 2026-08-31: on a hard refresh, AuthContext's token restore
+  // (getStoredToken() -> fetchMe()) is async — `user` is still null for
+  // that first render even though a valid token IS in localStorage.
+  // Without this check, this component fell straight through to the
+  // `role = user?.role || "requester"` default below and showed "This
+  // screen isn't for your role" for every non-requester (e.g. a real
+  // approver refreshing /approver) until fetchMe() resolved a moment
+  // later — easy to mistake for "my session didn't survive the
+  // refresh" even though the token itself was never actually lost.
+  if (loading) return null;
 
   const role = user?.role || "requester"; // Xano's own default for a new signup
   if (allow.includes(role)) return <>{children}</>;

@@ -20,6 +20,12 @@ test("replaying a signature on an already-active warrant is rejected and shown i
   await page.getByTestId(`sign-${warrantId}`).click();
   await expect(page.getByTestId(`warrant-status-${warrantId}`)).toHaveText("active");
 
+  // Once "active", the card moves out of "Needs your action" into the
+  // collapsed "History" <details> (see approver/page.tsx's
+  // ACTIONABLE_STATUSES) — expand it before interacting with anything
+  // inside, same as a real user would click the summary to open it.
+  await page.getByTestId("history-toggle-summary").click();
+
   // Second attempt on the same warrant: this is the replay attack. The
   // warrant is already used=true, so it must be rejected on that basis
   // alone — visibly, in the UI, per ROADMAP.md's Phase 6 "done when".
