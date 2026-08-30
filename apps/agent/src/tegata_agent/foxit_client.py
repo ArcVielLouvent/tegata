@@ -201,6 +201,13 @@ class FoxitClient:
             "sendNow": send_now,
             "createEmbeddedSigningSession": create_embedded_signing_session,
         }
+        # CONFIRMED required alongside createEmbeddedSigningSession=True
+        # (2026-08-30, via the TS port hitting the real error): "email
+        # id of embedded signer(s) not submitted". Matches the
+        # documented example (developersguide.foxitesign.foxit.com)
+        # showing embeddedSignersEmailIds as a separate array.
+        if create_embedded_signing_session:
+            data_payload["embeddedSignersEmailIds"] = [p.email for p in parties]
 
         url = f"{self.config.base_url}/v1/folders/createfolder"
         headers = self._headers(content_type="application/json")
