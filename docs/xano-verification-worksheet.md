@@ -17,6 +17,71 @@ the Xano side.
 ## 1. `score` function (mirrors `risk_engine.py`)
 
 ### Case A — high risk
+## Prerequisites & common pitfalls
+
+- **Every endpoint below requires authentication.** RBAC only works if
+  `$auth` is actually populated, which only happens on an authenticated
+  request. Sign up/log in via the Authentication group's endpoints
+  (present since Quick Start) for at least one user per role
+  (`requester`, `approver`, `security_admin` — set `role` manually on
+  the `user` row after signup if there's no role picker at signup),
+  then paste that user's token into the **Auth** tab of Run & Debug —
+  NOT into the JSON body.
+- **`Unable to locate auth: role` (or similar "Unable to locate auth:
+  X" errors):** this means a Precondition or filter step referenced
+  `auth.role` (or `auth.email`, etc.) directly. In Xano, the built-in
+  `auth` object populated by "Requires Authentication" only contains
+  `auth.id` — never the full user row. Fix: add a **Get Record** step
+  (table `user`, filter `id = auth.id`) *before* the Precondition, save
+  it to a variable (e.g. `authenticated_user`), and reference
+  `authenticated_user.role` instead of `auth.role`. This is a Xano
+  platform quirk, not a bug in the reference logic — confirmed via real
+  debugging 2026-08-27.
+- **`request_time` is not a real input on the actual `/score`
+  endpoint** as built — see Case A below for why this matters and the
+  recommended fix (an optional override).
+- **`reason` must be required, not optional**, matching
+  `AccessRequest.reason` in `packages/schema/python/models.py`
+  (`min_length=1`). If your `/score` endpoint currently accepts a
+  missing/empty `reason`, that's a real gap to close, not a minor
+  omission.
+
+---
+
+## 1. `POST /score` (mirrors `risk_engine.py`)
+
+**Real endpoint schema differs from the raw `risk_engine.py` function
+signature** — this endpoint bundles "create the request row" + "score
+it" into one call, and the Xano AI-built version currently computes
+`request_time` internally via `now()` and
+`prior_high_risk_requests_in_window` internally via a `db.query`
+against warrant history, rather than accepting either as a direct
+input. This has one real consequence for testing: **you cannot force a
+specific request_time**, so the deterministic weekend + off-hours test
+case below (Case A) will only produce the exact expected score if you
+happen to run it during that exact combination of conditions — which
+in practice means it usually won't match unless you add the override
+described below.
+
+**Recommended fix before testing further (Xano-side, no Python
+changes):** add an OPTIONAL `request_time` input to `/score`'s Function
+Stack — if provided, use it; if omitted, fall back to `now()`. This is
+a standard "clock override for tests" pattern, doesn't weaken
+production security (nothing forces a caller to override it), and
+restores the ability to test specific time-of-day/weekend scenarios on
+demand. `prior_high_risk_requests_in_window` should stay
+computed-from-history-only (that's the correct, intended design per
+`docs/xano-setup.md` §3 step 4) — don't add an override for that one.
+
+**Separately, flag this to whoever builds the Function Stack:** the
+`reason` field must be **required, minimum 1 character** — matching
+`AccessRequest.reason` in `packages/schema/python/models.py`
+(`Field(..., min_length=1, max_length=500)`). If the current endpoint
+accepts a missing/empty `reason`, that's a real validation gap, not a
+minor omission — it lets a request through that the hard schema gate
+would reject everywhere else in this project.
+
+### Case A — high risk (requires the `request_time` override above)
 **Input:**
 ```json
 {
@@ -28,6 +93,21 @@ the Xano side.
 ```
 *(2026-08-29 is a Saturday — this deliberately exercises both the
 weekend penalty and the off-hours penalty at once.)*
+  "reason": "incident investigation",
+  "request_time": "2026-08-29T23:00:00Z"
+}
+```
+*(2026-08-29 is a Saturday — this deliberately exercises both the
+weekend penalty and the off-hours penalty at once. Requires the
+optional override — see above. If you haven't added it yet, skip this
+case for now rather than expecting a match against real-time `now()`.)*
+
+*(This case also assumes zero prior high-risk requests exist yet for
+your test user, since `prior_high_risk_requests_in_window` is computed
+from real history, not injected — if you've already run other high-risk
+test requests as the same user, `requester_history_factor` will be
+higher than shown below, and total score may already be at the 100 cap
+regardless.)*
 
 **Expected output:**
 ```json
@@ -47,6 +127,21 @@ weekend penalty and the off-hours penalty at once.)*
 - [ ] Matches
 
 ### Case B — low risk
+    "requester_history_factor": 0
+  }
+}
+```
+*(50 + 30 + 30 + 0 = 110, capped at 100. If your test user already has
+prior high-risk warrants in the last 30 days, `requester_history_factor`
+will be higher than 0 — that's fine and expected; the total is capped
+at 100 regardless, so the score itself should still read 100 either
+way. Only `requester_history_factor` and `tier` staying "high" are what
+actually matter here — a differing score of exactly 100 either way is
+not a bug.)*
+
+- [ ] Score is 100, tier is "high" (factor breakdown may vary only in `requester_history_factor`)
+
+### Case B — low risk (works today, no override needed)
 **Input:**
 ```json
 {
@@ -59,6 +154,20 @@ weekend penalty and the off-hours penalty at once.)*
 *(2026-08-24 is a Monday, 10am — business hours, weekday.)*
 
 **Expected output:**
+  "reason": "check onboarding doc"
+}
+```
+*(No `request_time` override — this case intentionally uses "whatever
+`now()` actually is." During normal business hours/weekdays,
+`internal_wiki`'s low base sensitivity (5) keeps the total at 5 —
+solidly "low." But in the worst case (weekend + off-hours + maxed-out
+prior history: 5 + 0 + 30 + 15 = 50), it actually crosses into
+"medium" (medium threshold is >=40). So if you get "medium" instead of
+"low," don't assume something's broken — check `time_of_day_factor`
+and `requester_history_factor` first; it may just mean you ran this
+test outside business hours or as a user with prior high-risk history.)*
+
+**Expected output (typical, business-hours run):**
 ```json
 {
   "score": 5,
@@ -80,6 +189,20 @@ weekend penalty and the off-hours penalty at once.)*
 
 **Expected:** `resource_sensitivity` = **30** (the default), not an
 error or a blank value.
+**Input:**
+```json
+{
+  "resource": "some_new_resource_nobody_registered",
+  "requested_duration_minutes": 30,
+  "reason": "testing default sensitivity fallback"
+}
+```
+
+**Expected:** `resource_sensitivity` = **30** (the default), not an
+error or a blank value. This is the case the 2026-08-27 Xano fix
+specifically targeted (previously unregistered resources were rejected
+instead of defaulting) — good that it's fixed, this case confirms it
+stays fixed.
 
 - [ ] Matches
 
@@ -170,6 +293,8 @@ to run Python yourself.
 
 **The canonical string that gets hashed** (sorted keys, no whitespace):
 ```
+
+```json
 {"actor":null,"event":"requested","prev_hash":null,"timestamp":"2026-08-25T10:00:00Z","warrant_id":"w1"}
 ```
 
