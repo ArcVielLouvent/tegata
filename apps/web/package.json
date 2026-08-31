@@ -1,0 +1,26 @@
+{
+  "name": "@tegata/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tegata Phase 6 — minimal Next.js UI for requester, approver, and audit-trail viewer. Functional demo UI, not polished (see ROADMAP.md Phase 6: judges evaluate the system, not visual design).",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "^14.2.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "@tegata/schema": "*",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "typescript": "^5.5.0"
+  }
+}

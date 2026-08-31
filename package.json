@@ -9,10 +9,13 @@
   ],
   "scripts": {
     "test:schema-consistency": "ts-node tests/schema_consistency.test.ts",
+    "test:e2e": "playwright test --config=tests/e2e/playwright.config.ts",
+    "test:e2e:xano": "playwright test --config=tests/e2e/playwright.xano.config.ts",
     "lint": "eslint . --ext .ts,.tsx"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
+    "@playwright/test": "^1.46.0",
     "ts-node": "^10.9.0",
     "typescript": "^5.5.0",
     "eslint": "^9.8.0"

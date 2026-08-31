@@ -14,6 +14,9 @@ the Xano side.
 
 ---
 
+## 1. `score` function (mirrors `risk_engine.py`)
+
+### Case A — high risk
 ## Prerequisites & common pitfalls
 
 - **Every endpoint below requires authentication.** RBAC only works if
@@ -84,6 +87,12 @@ would reject everywhere else in this project.
 {
   "resource": "db_payment_prod",
   "requested_duration_minutes": 1440,
+  "request_time": "2026-08-29T23:00:00Z",
+  "prior_high_risk_requests_in_window": 2
+}
+```
+*(2026-08-29 is a Saturday — this deliberately exercises both the
+weekend penalty and the off-hours penalty at once.)*
   "reason": "incident investigation",
   "request_time": "2026-08-29T23:00:00Z"
 }
@@ -109,6 +118,15 @@ regardless.)*
     "resource_sensitivity": 50,
     "duration_factor": 30,
     "time_of_day_factor": 30,
+    "requester_history_factor": 10
+  }
+}
+```
+*(50 + 30 + 30 + 10 = 120, capped at 100.)*
+
+- [ ] Matches
+
+### Case B — low risk
     "requester_history_factor": 0
   }
 }
@@ -129,6 +147,13 @@ not a bug.)*
 {
   "resource": "internal_wiki",
   "requested_duration_minutes": 15,
+  "request_time": "2026-08-24T10:00:00Z",
+  "prior_high_risk_requests_in_window": 0
+}
+```
+*(2026-08-24 is a Monday, 10am — business hours, weekday.)*
+
+**Expected output:**
   "reason": "check onboarding doc"
 }
 ```
@@ -159,6 +184,11 @@ test outside business hours or as a user with prior high-risk history.)*
 - [ ] Matches
 
 ### Case C — unregistered resource (default sensitivity)
+**Input:** any `resource` value not in `resource_tiers`
+(e.g. `"some_new_resource_nobody_registered"`)
+
+**Expected:** `resource_sensitivity` = **30** (the default), not an
+error or a blank value.
 **Input:**
 ```json
 {
@@ -262,6 +292,7 @@ to run Python yourself.
 `timestamp="2026-08-25T10:00:00Z"`, `actor=null`, `prev_hash=null`
 
 **The canonical string that gets hashed** (sorted keys, no whitespace):
+```
 
 ```json
 {"actor":null,"event":"requested","prev_hash":null,"timestamp":"2026-08-25T10:00:00Z","warrant_id":"w1"}
@@ -272,7 +303,6 @@ to run Python yourself.
 5cb9f99c09e456d8c5581b2b26b1deab884339c25674044ca058ea24c44f1873
 ```
 
-
 - [ ] Matches exactly (64 hex characters, no truncation)
 
 ### Case B — second entry, links to the first
@@ -282,11 +312,9 @@ to run Python yourself.
 (Case A's hash)
 
 **Expected SHA-256 hash:**
-
 ```
 12bc978e9ac708720cb84d0bfe40e2aa9a567758fdadc0fccb80ba0b88465cf1
 ```
-
 
 - [ ] Matches exactly
 
@@ -297,11 +325,9 @@ to run Python yourself.
 (Case B's hash)
 
 **Expected SHA-256 hash:**
-
 ```
 f150350642a5eb81a53c0bc7ee8e0a7aebed508403f0e178871ef47d44f44842
 ```
-
 
 - [ ] Matches exactly
 

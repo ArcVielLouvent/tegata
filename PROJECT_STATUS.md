@@ -2,9 +2,92 @@
 
 > This file is the project's "memory" that travels with the repo. Every new work session should start by reading this file, not by assuming.
 
-**Last updated:** 2026-08-25 (Phase 5 complete)
-**Hackathon deadline:** September 3, 2026, 10:00 PDT
+**Last updated:** 2026-08-30
+**Hackathon deadline:** September 3, 2026, 10:00 PDT — **4 days left as of this update**
 **Target:** Foxit, Xano, Doctavian tracks + Overall Winner (DevNetwork [API+Cloud+AI] Hackathon 2026)
+
+## ⚡ Quick Orientation — read this before anything else below
+
+Detailed history follows chronologically further down this file (every
+section header has a date). If you only have time to read one section,
+read this one.
+
+**What's CONFIRMED working end-to-end against real Xano (not mock)
+right now:**
+- Register (auto-logs in) / login, both roles (`requester` default,
+  `approver` set manually in Xano's Database tab — see §9d in
+  `docs/xano-setup.md`).
+- Submit a request → real risk score, tier, approver count, all
+  correctly displayed (`POST /score`).
+- Warrant correctly reaches `pending_approval` (was stuck at `scored`
+  forever until 2026-08-29's fix).
+- `GET /warrants` returns real resource/reason/requested_by (was
+  blank/"unknown" until 2026-08-29's fix) and supports a genuinely
+  optional `status` filter.
+- The **simplified** sign path (`POST /warrants/transition` directly to
+  `active`, bypassing real Foxit) works for `required_approver_count===1`
+  warrants: RBAC correctly blocks the requester from self-approving,
+  correctly allows an `approver` account, and replay rejection works.
+
+**What's IN PROGRESS, actively being debugged this session (2026-08-30)
+— the REAL Doctavian+Foxit signing pipeline, not the simplified path
+above:**
+- `POST /api/documents/prepare` (Doctavian generate + Foxit
+  createfolder) now succeeds for real — confirmed via a real successful
+  response from Foxit (folder actually created, embedded signing
+  session generated).
+- `folderId`/`signingUrl` extraction from that real response was just
+  fixed (commit "Fix folderId/signingUrl extraction with the CONFIRMED
+  real Foxit response shape") — real keys are `envelope.folder.folderId`
+  and `envelope.embeddedSigningSessions[0].embeddedSessionURL`, neither
+  of which any earlier guess had tried.
+- **NOT YET RETESTED after that fix.** The immediate next step for
+  whoever picks this up: retest "Prepare & send for e-signature" on a
+  `pending_approval` warrant with `required_approver_count===1`. If
+  `attachEnvelope()` (calls Xano's `POST /warrants/attach-envelope`)
+  and the embedded `<iframe>` both work, move on to actually signing in
+  the iframe and clicking "I've signed — confirm" (calls Xano's
+  `POST /warrants/confirm-signature`, §13c in `docs/xano-setup.md` —
+  this endpoint's real Foxit-status-field name was never confirmed;
+  the 2026-08-30 successful createfolder response shows
+  `envelopeStatus`/`folderStatus` fields with value `"SHARED"`
+  pre-signing, which is almost certainly the field to check for
+  `"COMPLETED"` post-signing — pass this along to Xano if that
+  endpoint's precondition still needs fixing).
+
+**Known permanent limitation, not a bug:** any warrant stuck at status
+`scored` (created before the `pending_approval` transition fix) can
+never be signed — `scored -> active` is not a valid state-machine
+transition and never will be. These show up in the Approver page's
+collapsed "History" section. Fine to leave as clutter for now; delete
+them from Xano's Database tab before recording a final demo video.
+
+**Repo/branch state:** everything is on `phase/6-frontend-demo`, never
+merged to `main`. This has been deferred since Phase 3 and should
+happen once the real signing pipeline above is confirmed working, not
+before.
+
+**UI redesign (2026-08-30):** a Japanese-calligraphy visual pass
+happened (brush-font kanji, refined palette, Approver page split into
+"needs action" vs collapsed "history"). Armand's own assessment: doesn't
+look meaningfully different from before, and may hand this specific
+aspect to a different tool/AI rather than iterate further here. Don't
+assume more visual-design requests are wanted unless explicitly asked
+again — focus stayed on bug fixes after this feedback.
+
+**Working style note for whoever picks this up:** this project's Xano
+backend has been debugged almost entirely through a loop of (1) Claude
+proposes a specific, copy-pasteable prompt for Armand to paste into
+Xano's own AI agent, (2) Armand pastes the response back, (3) Claude
+verifies the claim against actual test results rather than trusting
+the description at face value (this caught real discrepancies multiple
+times — e.g. a described `text? ticket_ref` turned out to behave
+differently than described). Keep doing this — it's working. Do not
+guess at Xano Function Stack internals or Foxit/Doctavian response
+shapes; ask for the real thing, verify empirically (Armand can check
+browser DevTools Network tab's Response — not just Payload — for any
+call), and only fix based on confirmed data. This has been the single
+most effective pattern this entire project.
 
 ## Concept Summary
 See `docs/tegata-concept.md` for the full spec. In short: a time-boxed access authorization system where the LLM only proposes (NLU front-door), the system (hard schema validation + Xano) decides, Doctavian assembles a risk-scored conditional document, Foxit provides the two-way signing + verification layer, and everything auto-expires with a permanent audit trail.
@@ -16,7 +99,7 @@ See `docs/tegata-concept.md` for the full spec. In short: a time-boxed access au
 - [x] Phase 3 — Signature & Verification (Foxit) — client + tests done, real API round-trip (create → sign → verify → download) not yet run
 - [x] Phase 4 — AI Front-Door (Two-Pass NLU + 6-model fallback) — logic fully tested, real API calls not yet run
 - [x] Phase 5 — Auto-Expire & Audit Trail — reference implementation + tests done; real Xano scheduled task not yet built (manual step, see `docs/xano-setup.md` sections 7-8)
-- [ ] Phase 6 — Frontend Demo
+- [~] Phase 6 — Frontend Demo — in progress, see detailed status below (backend logic + UI + e2e tests written and passing everything runnable in Claude's sandbox; Playwright's actual browser run and real-Xano wiring still need to happen on your machine)
 - [ ] Phase 7 — Stretch Features
 - [ ] Phase 8 — Documentation & Submission
 
@@ -327,3 +410,500 @@ Phases 0-5 have tested reference logic in place, plus Phase 3/4's core mechanism
 **Still completely unaddressed, flagged since Phase 3:** the Xano-side signature-verification + anti-replay endpoint (checks the Foxit-signed document, verifies the warrant's `used` flag, flips it, transitions `signed -> active`) has no Python reference implementation or test file yet, unlike everything else in this project. Correctly not attempted in this session's Xano build either. Needs its own reference module (mirroring the `state_machine.py`/`audit_log.py` pattern) before it's safe to build in Xano — see `docs/xano-setup.md` §9.
 
 **Environment note:** working from local VS Code, not GitHub Codespaces (billing ran out) — this doesn't change anything about the Doctavian/Foxit network restrictions (those were about Claude's own sandbox, not Codespaces specifically), but any workflow notes that assumed a Codespace terminal should be read as "your local machine" instead going forward.
+
+## What Phase 6 Actually Built
+
+**The §9 gap (flagged since Phase 3) is now closed at the reference-implementation level:**
+- `apps/agent/src/tegata_agent/warrant_verification.py` — signature verification + anti-replay logic. Checks, in order: (1) `used` flag (anti-replay — checked before the envelope is even inspected, on purpose), (2) envelope fully `EXECUTED`, (3) document hash + signer email match what was sent for signature, (4) delegates the actual `signed -> active` transition to `state_machine.validate_transition` (no duplicated transition rules). `test_warrant_verification.py` — 17 tests. **Full regression: 137/137 pass.**
+- A second, previously-unflagged gap was found while starting this phase: there was also no `POST /warrants` (create/persist) endpoint anywhere — `score` and `derive_approval_requirement` only compute values in isolation, nothing hands back a `warrant_id`. Documented as a new gap.
+- `docs/xano-setup.md` §9a (`POST /verify-signature` spec, mirrors `warrant_verification.py`) and §9b (`POST /warrants` spec, pure persistence — reuses `score`/`derive_approval_requirement`, no new business logic) added. **Neither endpoint exists in the live Xano workspace yet** — this is the main blocker for real-Xano-mode below.
+
+**`apps/web` — Next.js 14 (App Router) frontend, three views:**
+- Requester (`/`) — submit a request, see the risk score + tier + required approver count immediately (Wow Moment: differing approver count for low vs. high risk).
+- Approver (`/approver`) — list warrants, sign them (tracks partial signatures when `required_approver_count` is 2), and a second "Sign" click on an already-active warrant demonstrates the anti-replay rejection **visibly in the UI** — banner text, not just an API error in a network tab (Wow Moment / ROADMAP's explicit Phase 6 "done when" line).
+- Audit trail (`/audit/[warrantId]`) — renders the hash-chained entries and a chain-integrity banner.
+- `lib/referenceLogic.ts` — a literal TypeScript port of `risk_engine.py`/`approval_rules.py`/`state_machine.py`/`audit_log.py`/`ttl.py`/`warrant_verification.py`. Not a separate reimplementation — same constants, same formulas, same ordering of checks.
+- `lib/mockStore.ts` + `/api/mock/*` route handlers — an in-memory backend built on `referenceLogic.ts`, used when `NEXT_PUBLIC_API_MODE=mock` (the default).
+- `lib/apiClient.ts` — single adapter switching between `/api/mock/*` and a real Xano base URL via `NEXT_PUBLIC_API_MODE`; once §9a/§9b exist in Xano, flipping this env var is the only change needed, no frontend code changes.
+- **Manually smoke-tested against a real running `next start` server in Claude's sandbox** (not just unit-level): create → sign → activate → replay attempt → confirmed `403 replay_rejected` → confirmed audit chain has exactly one `signed_and_activated` entry and `chain_intact: true`. Full curl transcript available on request if you want to re-verify before trusting it.
+- `npx tsc --noEmit` clean, `npx next build` succeeds.
+
+**`tests/e2e/`** — Playwright, two spec files (`happy-path.spec.ts`, `replay-rejection.spec.ts`) plus `playwright.config.ts` (runs `apps/web` in mock mode on port 3100). **Typechecked clean in Claude's sandbox but the actual browser run was NOT possible there** — Claude's sandbox network is restricted and cannot reach `cdn.playwright.dev` to download the Chromium binary. This is the one thing that still needs to happen on your machine before Phase 6 can honestly be marked done — see immediate priorities below.
+
+`scripts/verify_phase6_frontend.sh` — the real (non-pytest) verification script: installs deps, installs Playwright's Chromium, typechecks, runs the full Python regression, then runs Playwright against a real browser. Supports `--mode=xano` for once §9a/§9b exist. **Ran successfully through Step 4 (typecheck + full pytest regression) in Claude's sandbox; Step 5 (actual Playwright browser run) could not run there** for the same network-restriction reason as above — run it yourself locally, that's the actual pass/fail signal for this phase.
+
+`.github/workflows/phase-6.yml` — three jobs: agent regression (pytest+ruff), frontend typecheck+build, and Playwright e2e in mock mode (GitHub Actions runners aren't network-restricted the way Claude's sandbox is, so this job should actually work in CI even though it couldn't run locally in this session).
+
+**Auth wiring added (2026-08-28), after discovering Tegata Core is Private:**
+- `lib/auth.ts` — client for the separate "Authentication" API group (its own base URL, confirmed via Xano's "API URLs" panel — NOT the Swagger Docs panel, which is just documentation). `POST /auth/signup` and `POST /auth/login` confirmed to return `{authToken}`; `GET /auth/me` confirmed Private, needs the bearer token.
+- `lib/AuthContext.tsx` + `lib/AuthStatus.tsx` — React context wrapping the whole app (in `app/layout.tsx`), persists the token to `localStorage` (fine here — this is a real delivered app, not an Artifact, which has a separate stricter no-localStorage rule), hydrates on load, exposes `login()`/`register()`/`logout()`.
+- `app/login/page.tsx` — register (name/email/password) and login forms. In mock mode this page just explains login isn't needed there, rather than pretending to work.
+- Requester and Approver pages now guard on `needsLogin` in xano mode and pull the signed-in user's email instead of a free-text field (Xano ignores whatever `requested_by`/`signer_email` you send anyway and uses `$authenticated_user.email` server-side, per §9a/§9d).
+- **Confirmed gap, not a bug:** `/auth/signup` has no `role` input — every new account defaults to `requester`. There is no self-service way to become `approver`/`security_admin`; that's set manually by editing the user's row in Xano's Database tab. `docs/xano-setup.md` §9d documents this.
+- Mock mode is completely unaffected by any of this — smoke-tested again after the auth changes (create → sign → activate → replay-rejected all still pass via curl against a real `next start` server).
+
+## Not Yet Done / Known Gaps (updated 2026-08-28)
+- **Run `./scripts/verify_phase6_frontend.sh` for real, on your machine** — still the main open item. Nothing about mock-mode logic is expected to fail (smoke-tested via curl repeatedly, including after the auth changes), but an actual Playwright browser run is the real bar.
+- **`--mode=xano` has never actually been run against the live workspace yet** — the contract is confirmed correct on paper (§9a/§9b/§9d in `docs/xano-setup.md`, verified by reading the real Function Stacks via Xano's AI agent), and `apiClient.ts`/`auth.ts` are written to match it exactly, but nobody has clicked through the actual login → request → sign flow in a browser against real Xano yet. Do this before assuming it works.
+- xano mode's 2-approver flow is still only a manual/smoke-test shortcut (see `apiClient.ts`'s `signWarrant()` xano-mode comment) — it doesn't call a real Foxit envelope, so "1 of 2 signed" progress has no real equivalent yet.
+- Everything carried over from Phase 5's gaps (auto-expire scheduled task, `/audit-log/append` Function Stack, Doctavian re-verification, `phase-sync.sh` never run against real GitHub, nothing merged to `main` yet) is still exactly as open as it was.
+- `apps/web`'s mock backend is intentionally in-memory and resets on server restart — fine for a demo, not persistence.
+
+## Restructured plan going forward (Armand's call, 2026-08-28 — recorded here so it isn't lost)
+Phase 6 is now understood as three sub-stages, not one block:
+1. **Test Xano** (current stage) — confirm each Xano contract piece by piece against real endpoints, fix `apiClient.ts`/`auth.ts` to match. In progress; see immediate priorities below.
+2. **Integrate everything from Phases 1-5** — wire Phase 4's NLU front-door, Phase 2's Doctavian document generation, and Phase 3's real Foxit signing into this same `apps/web` UI (today it bypasses all three: the Requester page is a manual form, not NLU-driven, and Approver's "Sign" doesn't touch a real Foxit envelope). Also close out anything still open from Phases 1-5 specifically (see the gaps list above and each phase's own "Not Yet Done" section higher in this file).
+3. **Phase 7** — build + test the stretch features (ROADMAP.md's actual list: OCR self-consistency check, dual-audience document generation, progressive disclosure via redaction, synthetic canary warrant — hash-chained audit log is already done, Phase 5), and connect them into the same Phase 6 UI rather than treating them as separate demos.
+
+Phase 8 remains documentation + submission (README, benchmarks, testing docs, demo video, Devpost) — there is no separate "combine everything" phase beyond what 2-3 above already are.
+
+## Notes for the Next Session
+**Immediate priorities, in order:**
+1. **`./scripts/verify_phase6_frontend.sh` cannot run on Armand's machine** (AMD A4-9152/Radeon R3 — not enough headroom for Playwright's Chromium + a Next.js dev server at once) — CI (`e2e-mock-mode` in `phase-6.yml`) is the actual pass/fail signal for this phase's e2e tests, not a local run. Push to `phase/6-*` or open a PR and read the Actions tab.
+2. **Manually walk through `--mode=xano` in a real browser**: register → (manually set role=approver on a second test account in Xano's Database tab) → submit a request as the requester account → sign as the approver account → confirm activation → attempt to sign again → confirm the replay rejection banner appears with the right wording. This is the first time this flow will have actually run against live Xano.
+3. Re-verify the already-flagged Xano discrepancies from the earlier verification pass (`resource_sensitivity` for `db_payment_prod` — should be fixed now that `seed_resource_tiers` ran, confirm it actually shows 6 rows — the `internal_wiki` medium-vs-low scoring case, audit-log hash mismatches from contaminated test data, `auto_expire_sweep` needing manual trigger).
+4. Once 1-3 are solid, move to stage 2 of the restructured plan above (wire NLU front-door / Doctavian / Foxit into this same UI, close out Phase 1-5 loose ends) before starting Phase 7.
+5. **Merge the branch chain to `main`** — deferred since Phase 3, keeps growing. Do this once the above is stable, not before.
+
+## CI fix: e2e-mock-mode was flaky, not broken (2026-08-28)
+
+After pushing the auth-wiring commit, `e2e-mock-mode` in `phase-6.yml`
+failed on GitHub Actions: `warrant-card` not found, status stuck at
+`pending_approval`, `signed_and_activated` count 0 in the replay test.
+This was **not** a mock-backend logic bug and **did not** need any
+Doctavian/Foxit/Xano secrets in GitHub Secrets — the job only ever
+talks to this app's own `/api/mock/*` routes, never the network.
+
+Root cause: `tests/e2e/playwright.config.ts`'s `webServer` ran
+`npm run dev`, and Next.js dev mode compiles each route on first
+request. On a cold GitHub Actions runner, first-hit compile time for
+`/approver`, `/audit/[id]`, and the sign API route raced against
+Playwright's 5s assertion timeout — worse after this session's auth
+wiring added more first-load surface (`AuthContext`, `/login`) to
+compile.
+
+Fix (`tests/e2e/playwright.config.ts`, commit after `df2d184`):
+`webServer.command` now runs `npm run build && npm run start`
+(production, all routes precompiled) instead of `npm run dev`.
+Confirmed via a real `next start` + curl smoke test in Claude's
+sandbox: reset → create (`w_0001`, low risk, 1 approver) → sign →
+`status: active` → replay sign → `403 replay_rejected` → audit trail
+shows exactly one `signed_and_activated` entry, `chain_intact: true`.
+First-hit route latency in production mode: <160ms (vs. multi-second
+dev-mode compiles). Production build takes ~32s locally in the
+sandbox, well inside the new 180s `webServer.timeout`. Also added
+`expect.timeout: 8000` and `retries: 1` (CI only) as variance
+headroom — not a substitute for the actual fix.
+`ruff check` + full `pytest` regression (137/137) re-run clean;
+`apps/agent` untouched by this fix.
+
+**Still the actual bar for this specific fix:** a real browser run
+via GitHub Actions on `phase/6-frontend-demo` or `main` — the sandbox
+curl smoke test proves the mock backend and build are sound, but
+only CI can run actual Chromium against actual Playwright assertions
+here.
+
+## Hybrid real-signing pipeline (Doctavian + Foxit + Xano) — built 2026-08-29
+
+Following up on the CI fix and ticket_ref fix above: built the real
+signing pipeline for `required_approver_count === 1`, as a deliberate
+**hybrid** so all three sponsor integrations (Xano, Foxit, Doctavian)
+are genuinely used, not just one:
+
+- **`apps/web/app/api/documents/prepare/route.ts`** (Node.js runtime) —
+  orchestrates the one step that's a binary pass-through between two
+  external APIs (Doctavian generates a doc -> download bytes -> upload
+  those bytes to Foxit as an envelope) — not practical as a Xano
+  Function Stack step, which is built for JSON in/out.
+  `lib/doctavianClient.ts` and `lib/foxitClient.ts` are server-only TS
+  ports of `doctavian_client.py`/`foxit_client.py` (same endpoints,
+  same header shapes — copied, not re-derived).
+- **Xano stays the source of truth and does the actual verification**:
+  `docs/xano-setup.md` §13 specs two new endpoints for Xano's AI agent
+  to build — `/warrants/attach-envelope` (stores the real
+  `document_id`/`document_hash`/`foxit_folder_id` right after step 1)
+  and `/warrants/confirm-signature` (calls Foxit's real
+  `GET /folders/myfolder` **from Xano itself**, server-to-server, and
+  only activates the warrant if Foxit's real status says fully signed
+  — replacing the old `/warrants/transition` shortcut that just
+  trusted a client-supplied `envelope_status` string). NOT YET BUILT
+  in the actual Xano workspace — this is a spec for Armand to feed to
+  Xano's AI agent next.
+- **Approver page**: pending_approval + required_approver_count===1 in
+  xano mode now shows "Prepare & send for e-signature" ->
+  `prepareSignature()` + `attachEnvelope()` in one click -> an inline
+  `<iframe>` embedding Foxit's real embedded-signing URL ("web in web",
+  not a new-tab link — `createEmbeddedSigningSession: true`) -> "I've
+  signed — confirm" -> `confirmSignature()`. `signWarrant()` (the old
+  client-trusted shortcut) is now the fallback ONLY for
+  `required_approver_count === 2`, which this pipeline doesn't cover
+  yet.
+- Mock mode is completely untouched — smoke-tested end to end after
+  every change in this session, still 200/201 throughout.
+
+**Explicitly UNVERIFIED (flagged in code comments, not silently
+assumed) — first things to check on the first real run, once
+DOCTAVIAN_ACCESS_TOKEN/FOXIT_ESIGN_* are set in `apps/web/.env.local`
+and §13's two Xano endpoints exist:**
+1. Whether Doctavian's `generate_document` actually honors
+   `documentFileFormat: "pdf"` from a `.docx` template.
+2. The real field name holding the embedded signing URL in Foxit's
+   `create_envelope_from_binary` response (`extractSigningUrl()` in
+   `foxitClient.ts` guesses several plausible keys).
+3. The signature-field pixel position (`x: 100, y: 650` — a guess,
+   never checked against a real generated envelope).
+4. Whether Foxit's embedded-signing URL permits being framed in an
+   `<iframe>` at all (X-Frame-Options/CSP).
+5. The real field name for "fully executed" in
+   `get_envelope_details`'s response (§13c step 5) — this one Xano's
+   AI agent will hit first, since it's the endpoint that has to be
+   built from scratch rather than ported from working Python.
+
+**Next session priorities, in order:** (1) feed docs/xano-setup.md
+§13 to Xano's AI agent, build the two endpoints; (2) set real
+DOCTAVIAN_ACCESS_TOKEN + FOXIT_ESIGN_* in apps/web/.env.local and run
+the Requester -> Approver flow for real, once, to resolve the 5
+UNVERIFIED items above; (3) only then decide whether
+`required_approver_count === 2` gets a real Foxit sequential-signing
+flow too, or stays on the `signWarrant()` shortcut for the rest of the
+hackathon (time-box this — Sept 3 is close).
+
+## Phase 4 NLU front-door wired into the demo UI (2026-08-29)
+
+Following the hybrid signing pipeline above: ported
+`nlu_frontdoor.py` + `llm_client.py` to TS
+(`lib/nluFrontdoor.ts`, `lib/llmClient.ts`) and wired them into a new
+`POST /api/nlu/parse` route. Unlike the Doctavian/Foxit pipeline, this
+one stayed entirely in Next.js — it's pure LLM-call + validation logic
+with no persistent state and no binary pass-through, so there's no
+Xano-specific reason to spec a Function Stack for it (§13's split was
+specifically about binary data; this has none).
+
+- Requester page (`app/page.tsx`) now has a free-text box above the
+  form ("Describe what you need") -> "Fill form from description" ->
+  calls `/api/nlu/parse` -> fills `resource`/`reason`/
+  `requested_duration_minutes`/`ticket_ref` into the existing form
+  fields. Nothing is submitted automatically — the user still has to
+  review and click "Submit request" themselves, same "AI proposes,
+  system decides" principle as the Python original's docstring. If
+  the LLM's self-check pass flags a concern (e.g. suspected prompt
+  injection asking for unlimited access), it's shown as a visible
+  warning banner rather than silently swallowed.
+- Hard validation gate (`validateAndBuildRequest` in
+  `nluFrontdoor.ts`) is a straight port of the Python gate: resource
+  must be in the same whitelist `referenceLogic.ts` already uses for
+  mock-mode scoring (`RESOURCE_SENSITIVITY`'s keys) — deterministic,
+  no LLM involved, rejects regardless of what either LLM pass
+  concluded.
+- Fallback chain ported 1:1 from `llm_client.py`: 2 Gemini -> 2 Groq ->
+  2 OpenRouter models, same model names (same UNVERIFIED flag carried
+  over on `gemini-3.6-flash-lite` — never independently confirmed in
+  the Python original either).
+
+Verified: tsc --noEmit clean, next build clean (new
+`/api/nlu/parse` route shows up in the build output), smoke-tested
+both error paths (`config_error` with no provider key set,
+`validation_failed` with no `text`) — can't smoke-test an actual LLM
+call from this sandbox (no network access to Gemini/Groq/OpenRouter).
+Mock mode re-confirmed unaffected. Full Python regression 137/137,
+ruff clean.
+
+**Still UNVERIFIED, same reason as the signing pipeline (no network
+access to the real providers from this sandbox):** the actual Gemini/
+Groq/OpenRouter response shapes this file assumes
+(`data.candidates[0].content.parts[...].text` for Gemini,
+`data.choices[0].message.content` for Groq/OpenRouter — these are the
+standard documented shapes for each API, not independently tested
+here). Set GEMINI_API_KEY/GROQ_API_KEY/OPENROUTER_API_KEY in
+`apps/web/.env.local` and try a real free-text request as the next
+concrete verification step, same session as the signing pipeline's 5
+UNVERIFIED items.
+
+**All of Phase 0-5's systems are now wired into `apps/web` in some
+form** (risk engine: mock mode's own scoring + Xano's `/score`;
+Doctavian+Foxit: `/api/documents/prepare` + Xano §13; auto-expire:
+already in `state_machine.py`/mock's `ttl.py` port; NLU front-door:
+this). What's left is verification against the real external services
+(Xano AI's two endpoints, Doctavian, Foxit, and now the LLM
+providers) — none of it is buildable further from this sandbox
+without real network access, so the next session's job is running
+these live, not writing more code blind.
+
+## Independent audit of the "full integration" claim above (2026-08-29)
+
+Armand asked for this to actually be checked, not taken on faith. Went
+file-by-file (`doctavianClient.ts`/`foxitClient.ts`/`warrantVariables.ts`
+diffed against their Python originals line-by-line; `nluFrontdoor.ts`
+diffed against `nlu_frontdoor.py`; the real `tegata-warrant.docx`
+template unzipped and grepped for its actual `{!field}`/`hidden=`
+expressions rather than trusting the docstring's description of it).
+
+**Confirmed genuinely faithful, not just claimed:**
+- Doctavian/Foxit clients: endpoint paths, header names, body field
+  names (`emailId` not `email`, `allowNameChange: false`, etc.),
+  response-parsing paths (`result.data.files[0]`,
+  `result.data.document`) all match the Python originals exactly.
+- `warrantVariables.ts` matches `warrant_variables.py` field-for-field.
+- `apps/web/assets/tegata-warrant.docx` — MD5-identical to
+  `docs/templates/tegata-warrant.docx` (the confirmed-correct template
+  from the Phase 2 Doctavian-syntax resolution). Verified by unzipping
+  and grepping the actual `document.xml`: uses `{!fieldname}` syntax
+  (not native Word MERGEFIELD — zero matches), and its
+  `hidden="{!$required_approver_count == '2'}"` /
+  `!= '2'` pair genuinely drives the "document structure changes with
+  risk" story the NLU/warrant-variables docstrings claim — this isn't
+  an unused variable, the template actually branches on it.
+- `nluFrontdoor.ts`'s prompts are copied verbatim from
+  `nlu_frontdoor.py` (diffed character-for-character).
+- The `openrouter/free` model repeated twice in `llmClient.ts` looked
+  like a copy-paste bug at first glance — it's not; the Python
+  original does the exact same thing intentionally (no second free
+  slug exists to pin).
+
+**Real bugs found and fixed this pass:**
+- **`apiClient.ts`'s `getWarrant()`** assumed a single-record
+  `GET /warrants/{warrant_id}` endpoint exists in Xano. It was never
+  confirmed to exist — only the LIST endpoint (`GET /warrants`) was
+  ever verified. This would have 404'd on every visit to
+  `/audit/<warrant_id>` in xano mode (the exact page Armand's own
+  step-5 manual test plan above ends on), and on `signWarrant()`'s
+  legacy fallback path. Fixed: `getWarrant()` now fetches the
+  confirmed-working list and filters client-side instead of assuming
+  the single-record endpoint exists.
+
+**Still-unconfirmed assumption, flagged but not fixed (can't fix
+blind):** `getAuditLog()` calls `GET /audit-log?warrant_id=<id>`,
+assuming the query parameter is literally named `warrant_id`. The
+endpoint's existence is confirmed (Xano dashboard showed "1 input, 3
+functions"), but the actual input parameter's name was never
+confirmed. If the audit trail page in xano mode comes back empty or
+errors, check this first — open the endpoint in Xano's dashboard and
+confirm the input name matches.
+
+**New Xano-side bug found live (not a frontend issue — confirmed by
+reading `apiClient.ts`'s actual request body, which correctly sends
+`ticket_ref` as a plain string like `"JIRA-999"`):** submitting a
+request with a real (non-empty) `ticket_ref` value returns
+`Invalid filter: trim` from `/score`. Works fine with `ticket_ref: ""`
+(the fallback c32c317 sends when the field is left blank), breaks with
+a real value — meaning something in `/score`'s Function Stack applies
+a `|trim` filter to `ticket_ref` (or a field affected by it) in a way
+that only fails for a non-empty value. This needs to be diagnosed
+directly in Xano's Function Stack — nothing in this repo can fix it
+blind. See the exact diagnostic prompt given to Armand in-chat.
+
+
+## Approver page showing "No requests yet" for a warrant that really exists (2026-08-29)
+
+Armand hit this live, both accounts (requester and approver), right
+after a warrant was confirmed successfully created via POST /score
+(Image 1 of his report — MEDIUM RISK, score 46, all fields correct).
+Real bug, in `unwrapWarrantList()` — the *list* counterpart of the
+unwrap function `db136ab` added for the single-warrant case, but with
+the opposite failure behavior: `unwrapWarrant()`/`normalizeWarrant()`
+throw a loud diagnostic when nothing recognizable is found;
+`unwrapWarrantList()` silently returned `[]`. An unrecognized GET
+/warrants response shape and a genuinely empty list were
+indistinguishable — both just showed "No requests yet", no error, no
+clue.
+
+Fixed: `unwrapWarrantList()` now returns `undefined` (not `[]`) when
+none of the known shapes match; `listWarrants()` throws a diagnostic
+ApiError with the raw response attached in that case. The Approver
+page's `refresh()` now actually catches this (it previously had no
+catch block at all for this call) and shows it as a visible banner.
+A real empty list (bare `[]`, `{warrants: []}`, etc.) still displays
+"No requests yet" normally — only a genuinely unrecognized shape is
+now loud.
+
+**Next real test should show either the warrant on the Approver page,
+or (if the response shape is still wrong) a red banner with the raw
+JSON** — either way, more information than before. If it's the
+banner, send the raw shape and the key list gets fixed for real
+instead of guessed a third time.
+
+## Gemini model name fix (2026-08-29)
+
+`gemini-3.6-flash-lite` (this repo's original guess) was confirmed
+wrong — real error from testing: 404 NOT_FOUND. Armand searched and
+found the real current lineup; independently re-confirmed via web
+search (ai.google.dev, 2026-08-29): `gemini-3.7-flash` (GA, shipped
+2026-08-13, newest flagship) and `gemini-3.5-flash-lite` (GA, real
+lite-tier model) are both real, current model IDs. Swapped
+`llmClient.ts`'s Gemini pair to these two. Also switched from
+`?key=` query-param auth to the `x-goog-api-key` header, matching
+Google's current documented curl example for gemini-3.7-flash exactly
+(both work, this just matches what's actually documented now).
+
+Groq's `401 Invalid API Key` and OpenRouter's `429` from Image 2 are
+NOT code bugs — Groq's error is unambiguous (the key string itself
+isn't accepted, independent of account age), and OpenRouter's
+rate-limit was on `z-ai/glm-4.5:free`'s shared upstream free pool
+(that's a limit on the whole free-tier model's demand across all
+users, not tied to how old Armand's own account/key is — a
+brand-new key can still hit it). Things to check for the Groq key
+specifically: no leading/trailing whitespace or quotes when pasted
+into `.env.local`, and — since Armand is running `next build` +
+`next start` rather than `next dev` — a full restart of the `next
+start` process after any `.env.local` edit (server-only env vars are
+read at process start, same restart requirement as `next dev`, just
+less obvious when the workflow is build-once-serve).
+
+## Session summary, 2026-08-30: Foxit real-signing pipeline debugging + UI redesign
+
+Long session, many small fixes chained together as each one revealed
+the next. In order:
+
+1. **`normalizeWarrant()` field mapping fixed against a CONFIRMED
+   verbatim `GET /warrants` response** (Xano's dev pasted the actual
+   raw JSON — first time seen, not guessed). Two real bugs this
+   revealed: the four `factor_*` fields have different names AND order
+   than this repo's own `ScoreBreakdown` type (was silently falling
+   through to a hardcoded `{0,0,0,0}` for every real warrant), and
+   `created_at`/`expires_at` are epoch milliseconds, not ISO strings.
+   Also confirmed NOT a frontend bug: `resource`/`reason`/`requested_by`
+   were genuinely absent from the response at the time (Xano hadn't
+   added the join yet) — this was later fixed Xano-side same session.
+
+2. **Foxit `createEnvelopeFromBinary` rewritten from multipart to
+   `inputType:"base64"`.** The real 403 Armand hit was a wrong upload
+   method entirely, not bad credentials (separately confirmed via a
+   live curl test with the same client_id/client_secret against a
+   different endpoint, which worked). Foxit's own dashboard quickstart
+   only shows `inputType:"url"` (fetching from a public URL — not
+   usable here, Doctavian generates the PDF in-memory with no public
+   hosting). Confirmed the base64 method via Foxit's official docs plus
+   independent third-party integration examples. Enriched
+   `Party`/`SignatureField` shape to match Foxit's real dashboard
+   sample (`tabOrder`, `partyResponsible` were missing entirely). Also
+   fixed `handleResponse()`: only checked an error's `message` field,
+   missing the CONFIRMED real field name `error_description` (from the
+   same curl test) — every prior Foxit error was likely showing a
+   generic fallback instead of Foxit's actual stated reason. Also
+   handles Foxit returning a body-level `{result:"error"}` with HTTP
+   200 rather than a 4xx status.
+
+3. **`embeddedSignersEmailIds` added.** The base64 rewrite immediately
+   surfaced (correctly, thanks to fix #2's error_description handling)
+   a real Foxit error: `createEmbeddedSigningSession:true` needs a
+   *separate* `embeddedSignersEmailIds` array — not implied by the
+   boolean flag alone. Confirmed via Foxit's documented example.
+
+4. **`folderId`/`signingUrl` extraction fixed against a CONFIRMED real
+   successful `createfolder` response** (Foxit actually created a real
+   folder+envelope+embedded signing session this time — first genuine
+   success). Real keys, neither guessed correctly before:
+   `envelope.folder.folderId` (not top-level, not under `result` — that
+   field is a plain string `"success"`) and
+   `envelope.embeddedSigningSessions[0].embeddedSessionURL` (an array
+   of per-signer sessions keyed by `emailIdOfSigner`, not
+   `embeddedSigningUrl`/`signingUrl` at any level tried before).
+   Verified by writing the exact real JSON into a standalone Node
+   script and running the actual extraction functions against it
+   directly, not just eyeballing the code. `prepare/route.ts` also now
+   fails loudly (502 + full `raw_envelope` in the response) if
+   extraction ever fails again, instead of silently sending `null`
+   downstream to Xano where it surfaces as a confusing, seemingly
+   unrelated "Missing param" error.
+
+5. **UI redesign** (Japanese calligraphy visual identity): brush-font
+   kanji (Yuji Mai, loaded via `<link>` not `next/font/google` so the
+   build doesn't need network access to Google's font CDN), refined
+   washi/sumi/hanko/ai palette, Approver page split into "needs your
+   action" (sorted newest-first) vs. a collapsed "history" section
+   (warrants permanently stuck at `scored`, or otherwise resolved).
+   **Armand's own assessment: didn't feel meaningfully different from
+   before** — may hand this specific aspect to a different tool. Don't
+   invest further design effort here unless explicitly asked again.
+
+**Xano-side fixes confirmed published this same session** (via the
+Claude-proposes-prompt / Armand-pastes-response / Claude-verifies loop
+described in the Quick Orientation section above): the `|trim`-on-null
+crash in `function/score.xs`'s history-lookup query (moved
+normalization out of the `db.query` where-clause into a local
+variable), `ticket_ref` genuinely optional (`text? ticket_ref?` — two
+`?`s, one for nullable-value, one for optional-key, a real XanoScript
+distinction that isn't obvious), `append_audit_log` no longer requires
+callers to supply `prev_hash` (looks up the previous entry internally
+now), `/score` now actually transitions `scored -> pending_approval`
+(was silently stopping at `scored` forever before this), `GET
+/warrants` now joins in `resource`/`reason`/`requested_by` and its
+`status` filter is genuinely optional (`text? status?`, same two-`?`
+pattern as ticket_ref), and `POST /auth/signup` accepts an optional
+`role` (restricted to `requester`/`approver` only, never
+`security_admin`) used exclusively by the e2e test's direct API call,
+never exposed in the actual login/register UI.
+
+**Not done, not attempted this session:** merging `phase/6-frontend-demo`
+to `main` (still deferred, see Quick Orientation above), Phase 7
+stretch features, anything related to submission materials (Phase 8).
+
+## Branch reconciliation + CI/session fixes (2026-08-31)
+
+Three separate sessions had built forward from the same commit
+(`d32c87b`) without ever syncing: (1) this branch's own confirmed
+folderId/signingUrl fix + Quick Orientation notes, (2) a parallel
+session's "Sekisho Ledger" visual redesign v2 + frontend `RoleGate`
+RBAC gate, (3) a parallel `phase/7-stretch-features` branch. All three
+are now reconciled: this branch (`phase/6-frontend-demo`) carries (1)
+and (2) — the confirmed-working signing fix plus the redesign and
+RBAC gate, cherry-picked in that order so the confirmed fix wasn't
+accidentally reverted by the older code the other two branches forked
+from. Phase 7's commits are cherry-picked on a separate branch,
+stacked on this one, to be resumed later — not merged in here.
+
+**Root cause of the CI failure from the earlier Playwright run,
+confirmed by reading the actual render logic (not guessed):** the v2
+redesign moved any warrant not in `{"pending_approval", "signed"}` —
+including "active" — into a "History" section wrapped in a native
+`<details>` element, collapsed by default. Both failing tests needed
+to interact with elements that only exist on an already-active
+warrant (the audit-trail link, the replay-attempt sign button) — both
+now sit inside that collapsed `<details>`, which genuinely hides its
+content until opened. Playwright correctly found the elements in the
+DOM and correctly reported them as not visible; this was never a
+flaky-CI issue. Fixed by giving `<summary>` a
+`data-testid="history-toggle-summary"` and having both specs click it
+open before interacting with anything inside — the same thing a real
+user has to do.
+
+**Session-refresh bug ("logged in, refreshed the page, got treated as
+unauthorized"), two real causes found in `apps/web/lib/`, not a Xano
+issue:**
+1. `RoleGate.tsx` computed `role = user?.role || "requester"` without
+   checking `useAuth()`'s own `loading` flag first. On a hard refresh,
+   `AuthContext`'s token restore (`getStoredToken()` -> `fetchMe()`)
+   is async, so `user` is briefly `null` even though a valid token
+   sits in localStorage the whole time — during that window this
+   defaulted everyone to `"requester"`, showing "This screen isn't for
+   your role" to a real approver refreshing `/approver`. Fixed:
+   returns `null` while `loading` is true.
+2. `AuthContext.tsx` cleared the stored token on ANY `fetchMe()`
+   failure, not just an actual 401/403. `auth.ts`'s own module
+   docstring already flagged `NEXT_PUBLIC_XANO_AUTH_ME_PATH` as an
+   unconfirmed guess at Xano's real path — if that guess is wrong (or
+   there's a transient network/CORS hiccup), every refresh would
+   silently throw away a perfectly good token and force a real
+   re-login. Fixed: only clears the token on a confirmed 401/403;
+   anything else surfaces as a retryable error instead.
+
+**Not a bug (clarified by Armand 2026-08-31):** `audit_log` never
+having a `requested_by`-style field is expected — that data lives on
+the separate `requests`/`warrants` tables, `audit_log` only records
+the event chain (`actor`, `event`, `prev_hash`, `hash`, `timestamp`).
+No fix needed here; removed from the open-issues list.
+
+**Verified this session:** `tsc --noEmit` (apps/web) clean, `next
+build` clean (the font-stylesheet minify warning during build is
+Claude's sandbox network egress restriction on
+`fonts.googleapis.com`, not a real error — GitHub Actions' runner has
+normal network access), Python regression 137/137 (`apps/agent`),
+both schema-consistency tests (Python + TS) passing when run with the
+same `PYTHONPATH`/`ts-node` flags `.github/workflows/phase-0.yml`
+actually uses. **NOT verified:** the e2e Playwright run itself —
+Claude's sandbox can't install Playwright's browser binaries (blocked
+by the same network egress restriction), so the collapsed-`<details>`
+fix is confirmed by reading the render logic and matching it exactly
+against the CI failure's error output, not by re-running the suite.
+Run `npm run test:e2e` locally or push to CI to get that final
+confirmation before merging to `main`.

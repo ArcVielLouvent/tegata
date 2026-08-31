@@ -1,0 +1,542 @@
+:root {
+  /* Washi paper + sumi ink + hanko vermillion + ai indigo — a small,
+     restrained Japanese palette rather than a generic light theme.
+     Named after their traditional references so future edits keep the
+     intent: this is meant to feel like a stamped travel permit, not a
+     SaaS dashboard. */
+  --washi: #f7f2e6;
+  --washi-deep: #ece2c9;
+  --paper: #fffdf7;
+  --sumi: #211d17;
+  --sumi-soft: #5b5348;
+  --sumi-faint: #8c8471;
+  --line: #ddd0ac;
+  --line-soft: #eae0c2;
+  --hanko: #a3372a; /* vermillion seal-ink red */
+  --hanko-deep: #7c281e;
+  --hanko-bg: #f8e9e4;
+  --gold: #93711f;
+  --gold-bg: #f7edd3;
+  --gold-soft: #e3cf98;
+  --ai: #2b4a5c; /* indigo, secondary accent */
+  --ai-bg: #e6edef;
+  --low: #3d6b45;
+  --low-bg: #e6efe4;
+  --medium: #a1701f;
+  --medium-bg: var(--gold-bg);
+  --high: var(--hanko);
+  --high-bg: var(--hanko-bg);
+  --mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  --brush: "Shippori Mincho", "Hiragino Mincho ProN", serif;
+  --sans: "Zen Kaku Gothic New", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --shadow-soft: 0 1px 3px rgba(28, 26, 23, 0.05), 0 8px 20px rgba(28, 26, 23, 0.045);
+}
+
+* { box-sizing: border-box; }
+
+html { background: var(--washi); }
+
+body {
+  position: relative;
+  margin: 0;
+  background-color: var(--washi);
+  background-image:
+    radial-gradient(circle at 12% 8%, rgba(163, 55, 42, 0.035), transparent 40%),
+    radial-gradient(circle at 94% 90%, rgba(43, 74, 92, 0.04), transparent 40%);
+  background-attachment: fixed;
+  color: var(--sumi);
+  font-family: var(--sans);
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* A real paper-grain texture (SVG feTurbulence, not a flat gradient) —
+   fixed so it doesn't scroll away from the viewport, low-opacity and
+   multiply-blended so it reads as fibre in the paper rather than
+   visible noise. Pure CSS, no image asset to ship or cache. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  mix-blend-mode: multiply;
+  z-index: 0;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 0.13  0 0 0 0 0.11  0 0 0 0 0.09  0 0 0 0.05 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+
+.topbar {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem 1.75rem;
+  border-bottom: 1px solid var(--line);
+  background: rgba(247, 242, 230, 0.9);
+  backdrop-filter: blur(6px);
+  position: sticky;
+  top: 0;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  text-decoration: none;
+  color: var(--sumi);
+}
+.brand-kanji {
+  font-family: var(--brush);
+  font-size: 1.55rem;
+  color: var(--hanko);
+  line-height: 1;
+}
+.brand-name {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  font-size: 0.96rem;
+}
+
+/* Nav rendered as a pill of tabs rather than plain underlined links —
+   makes "which screen am I on" legible at a glance, and visually
+   separates it from the account controls next to it. */
+.topbar nav.tabs {
+  display: flex;
+  gap: 0;
+  background: var(--washi-deep);
+  border-radius: 8px;
+  padding: 3px;
+  margin: 0 auto;
+}
+.topbar nav.tabs a {
+  margin-left: 0;
+  color: var(--sumi-soft);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 0.42rem 0.95rem;
+  border-radius: 6px;
+  border-bottom: none;
+}
+.topbar nav.tabs a.active,
+.topbar nav.tabs a[aria-current="page"] {
+  background: var(--paper);
+  color: var(--sumi);
+  box-shadow: 0 1px 2px rgba(28, 26, 23, 0.08);
+}
+.topbar nav.tabs a:hover:not(.active) { color: var(--sumi); }
+
+/* Legacy plain-link nav (still used where a page hasn't opted into
+   .tabs) kept for backward compatibility. */
+nav a:not(.tabs a) {
+  margin-left: 1.4rem;
+  color: var(--sumi-soft);
+  text-decoration: none;
+  font-size: 0.92rem;
+  padding-bottom: 3px;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+nav a:not(.tabs a):hover { color: var(--sumi); border-bottom-color: var(--hanko); }
+
+.page {
+  position: relative;
+  z-index: 1;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 2.6rem 1.75rem 5rem;
+}
+
+/* Small uppercase mono chip used right above a page's <h1> to say, in
+   one glance, whose screen this is — e.g. "this is your request
+   queue, not the approver's". Cheap to add, resolves a lot of "wait,
+   am I looking at the right page?" confusion between Requester and
+   Approver. */
+.role-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ai);
+  background: var(--ai-bg);
+  padding: 0.25rem 0.6rem;
+  border-radius: 20px;
+  margin-bottom: 0.9rem;
+}
+.role-chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--ai); }
+.role-chip.hanko { color: var(--hanko); background: var(--hanko-bg); }
+.role-chip.hanko::before { background: var(--hanko); }
+
+h1 {
+  font-family: var(--brush);
+  font-weight: 700;
+  font-size: 1.75rem;
+  margin-bottom: 0.4rem;
+  letter-spacing: 0.005em;
+}
+.subtitle { color: var(--sumi-soft); margin-top: 0; margin-bottom: 1.85rem; font-size: 0.92rem; max-width: 62ch; }
+
+label { display: block; font-size: 0.84rem; margin-bottom: 0.35rem; margin-top: 1.1rem; color: var(--sumi-soft); font-weight: 500; }
+input, select, textarea {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 0.95rem;
+  background: var(--paper);
+  font-family: var(--sans);
+  color: var(--sumi);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--ai);
+  box-shadow: 0 0 0 3px rgba(43, 74, 92, 0.1);
+}
+textarea { min-height: 5rem; resize: vertical; }
+
+button {
+  cursor: pointer;
+  border: 1px solid var(--sumi);
+  background: var(--sumi);
+  color: var(--washi);
+  padding: 0.6rem 1.2rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  font-family: var(--sans);
+  margin-top: 1.25rem;
+  transition: transform 0.1s ease, opacity 0.15s ease, box-shadow 0.15s ease;
+}
+button:hover:not(:disabled) { opacity: 0.88; box-shadow: var(--shadow-soft); }
+button:active:not(:disabled) { transform: translateY(1px); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button.secondary { background: transparent; color: var(--sumi); border-color: var(--line); font-weight: 500; }
+button.secondary:hover:not(:disabled) { border-color: var(--sumi); box-shadow: none; }
+button.danger { background: var(--hanko); border-color: var(--hanko); color: white; }
+
+.card {
+  position: relative;
+  z-index: 1;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: 1.3rem 1.5rem;
+  margin-bottom: 1rem;
+  background: var(--paper);
+  box-shadow: var(--shadow-soft);
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.card:hover { border-color: var(--line); }
+
+/* AI front-door / result cards get a thin ink-red top edge and a small
+   "issued to you" tag so they read as a document handed back to you,
+   not just another form section. Opt-in via .card.result so plain
+   cards (history, queue) stay unmarked. */
+.card.result {
+  border-top: 3px solid var(--hanko);
+  margin-top: 0.5rem;
+}
+.card.result::before {
+  content: "issued";
+  position: absolute;
+  top: -11px;
+  left: 1.4rem;
+  background: var(--hanko);
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.6rem;
+  border-radius: 3px;
+}
+
+/* Status/risk badges styled like a small ink stamp: a solid block of
+   colour, rounded just enough to read as a mark rather than a UI chip. */
+.badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-family: var(--mono);
+  padding: 0.2rem 0.55rem;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: white;
+  line-height: 1.4;
+}
+.badge.low { background: var(--low); }
+.badge.medium { background: var(--medium); }
+.badge.high { background: var(--high); }
+.badge.status { background: var(--ai); }
+.badge.status.muted { background: #8a8578; }
+
+/* Round hanko-style stamp, used wherever a risk tier is the visual
+   focal point of a card (request result, approval queue) rather than
+   just a label among several. Kept separate from .badge so existing
+   inline risk labels aren't forced into a shape that doesn't fit
+   dense list rows. */
+.stamp {
+  position: relative;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  border: 2.5px solid var(--hanko);
+  color: var(--hanko);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--brush);
+  transform: rotate(-7deg);
+  flex-shrink: 0;
+  background: rgba(163, 55, 42, 0.05);
+  overflow: hidden;
+}
+.stamp.medium { border-color: var(--medium); color: var(--medium); background: rgba(161, 112, 31, 0.05); }
+.stamp.low { border-color: var(--low); color: var(--low); background: rgba(61, 107, 69, 0.05); }
+.stamp::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.4;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='s'><feTurbulence type='fractalNoise' baseFrequency='0.6' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23s)'/></svg>");
+}
+.stamp .tier { font-size: 0.72rem; font-weight: 700; position: relative; z-index: 1; }
+.stamp .score { font-family: var(--mono); font-size: 0.52rem; position: relative; z-index: 1; }
+
+.banner {
+  padding: 0.8rem 1.05rem;
+  border-radius: 8px;
+  margin: 1rem 0;
+  font-size: 0.9rem;
+  border: 1px solid transparent;
+}
+.banner.error { background: var(--hanko-bg); border-color: var(--hanko); color: var(--hanko-deep); }
+.banner.success { background: var(--low-bg); border-color: var(--low); color: #204d29; }
+.banner.warning { background: var(--gold-bg); border-color: var(--gold-soft); color: var(--gold); }
+
+.mono { font-family: var(--mono); font-size: 0.82rem; word-break: break-all; }
+.muted { color: var(--sumi-soft); font-size: 0.85rem; }
+.row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+
+/* Risk-factor chips with a hoverable/tappable "?" — the numbers
+   (resource_sensitivity 0.9, etc.) mean nothing to a first-time user
+   on their own, so each one gets an inline explanation instead of
+   requiring a separate glossary page. */
+.factors { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.7rem; }
+.factor {
+  position: relative;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--sumi-soft);
+  background: var(--washi-deep);
+  padding: 0.28rem 0.55rem 0.28rem 0.5rem;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  cursor: help;
+}
+.factor .q {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 1px solid var(--sumi-faint);
+  color: var(--sumi-faint);
+  font-family: var(--sans);
+  font-size: 0.58rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.factor .tip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 220px;
+  background: var(--sumi);
+  color: var(--washi);
+  font-family: var(--sans);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  padding: 0.6rem 0.75rem;
+  border-radius: 6px;
+  z-index: 30;
+  font-weight: 400;
+}
+.factor:hover .tip, .factor:focus .tip, .factor:focus-within .tip { display: block; }
+
+.chain-entry {
+  border-left: 3px solid var(--line);
+  padding: 0.45rem 0 0.45rem 0.85rem;
+  margin-bottom: 0.45rem;
+}
+.chain-entry.broken { border-left-color: var(--hanko); }
+
+/* Approver page: section headers separating "needs your action" from
+   "history" — a small kanji-flavoured label rather than a plain
+   uppercase UI heading, to keep the same visual language as the brand
+   mark instead of falling back to generic dashboard styling. */
+.section-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin: 2rem 0 0.9rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--line-soft);
+}
+.section-heading:first-of-type { margin-top: 0.5rem; }
+.section-heading .kanji-mark {
+  font-family: var(--brush);
+  font-size: 1.2rem;
+  color: var(--hanko);
+  line-height: 1;
+}
+.section-heading h2 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin: 0;
+  color: var(--sumi);
+  text-transform: none;
+}
+.section-heading .count {
+  font-size: 0.8rem;
+  color: var(--sumi-soft);
+  font-family: var(--mono);
+}
+
+.card.dimmed { opacity: 0.62; box-shadow: none; }
+.card.dimmed:hover { opacity: 0.85; }
+
+.timestamp { font-size: 0.78rem; color: var(--sumi-soft); }
+
+details.history-toggle summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--sumi-soft);
+  padding: 0.4rem 0;
+  user-select: none;
+}
+details.history-toggle summary:hover { color: var(--sumi); }
+
+/* "Show N of M, view all" pattern — used anywhere a list could
+   otherwise grow without bound (warrant queues, request history).
+   Deliberately NOT infinite scroll: a fixed page of results plus an
+   explicit action to see more, so the page has a knowable end. */
+.view-more {
+  display: block;
+  text-align: center;
+  margin-top: 0.6rem;
+  padding: 0.5rem;
+  font-size: 0.83rem;
+  color: var(--ai);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+  width: 100%;
+}
+.view-more:hover { text-decoration: underline; opacity: 1; box-shadow: none; }
+
+/* AI front-door box (Requester page): a distinct gold-toned card so
+   it visually reads as "optional assistant," separate from the actual
+   form beneath it that the person still has to review and submit. */
+.nlu-frontdoor {
+  background: var(--gold-bg);
+  border: 1px solid var(--gold-soft);
+  border-radius: 8px;
+  padding: 1.1rem 1.3rem 1.3rem;
+  margin-bottom: 1.7rem;
+}
+.nlu-frontdoor label { margin-top: 0; color: var(--gold); font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; }
+.nlu-frontdoor textarea { background: var(--paper); }
+
+/* Foxit embedded-signing panel: framed like a real document viewer
+   (fixed-height, internally scrollable) with its action pinned below
+   it, rather than an iframe floating loose in the page — matters most
+   for a long signing document, so the page itself never has to grow
+   without bound to fit it. */
+.signing-panel {
+  background: var(--paper);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 0.75rem;
+}
+.signing-panel iframe { display: block; border: none !important; border-radius: 0 !important; }
+.signing-panel .signing-panel-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.9rem 1.1rem;
+  border-top: 1px solid var(--line-soft);
+  background: var(--washi-deep);
+}
+.signing-panel .signing-panel-footer button { margin-top: 0; }
+.signing-panel .signing-panel-footer .note { font-size: 0.78rem; color: var(--sumi-faint); max-width: 40ch; }
+
+/* Account menu in the top bar: avatar + dropdown instead of a bare
+   "email (role) · Log out" strip, so identity and sign-out live in one
+   predictable place regardless of how long the email is. */
+.account-menu { position: relative; display: flex; align-items: center; gap: 0.6rem; }
+.account-menu .avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--ai-bg);
+  color: var(--ai);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  margin: 0;
+  padding: 0;
+}
+.account-menu .avatar:hover { opacity: 1; box-shadow: none; border-color: var(--sumi-faint); }
+.account-menu .dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(28, 26, 23, 0.14);
+  min-width: 190px;
+  padding: 0.5rem;
+  z-index: 40;
+}
+.account-menu .dropdown .who-email { display: block; padding: 0.4rem 0.7rem 0.6rem; font-family: var(--mono); font-size: 0.72rem; color: var(--sumi-faint); border-bottom: 1px solid var(--line-soft); margin-bottom: 0.3rem; word-break: break-all; }
+.account-menu .dropdown button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--hanko);
+  font-weight: 500;
+  font-size: 0.85rem;
+  padding: 0.55rem 0.7rem;
+  margin: 0;
+  border-radius: 5px;
+}
+.account-menu .dropdown button:hover { background: var(--hanko-bg); opacity: 1; box-shadow: none; }
+
+/* Simple history/queue table used for capped lists (see .view-more) —
+   denser than stacking full .card rows for anything read-only. */
+table.ledger { width: 100%; border-collapse: collapse; font-size: 0.84rem; margin-top: 0.5rem; }
+table.ledger th { text-align: left; font-family: var(--mono); font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--sumi-faint); font-weight: 500; padding: 0.4rem 0.3rem; border-bottom: 1px solid var(--line); }
+table.ledger td { padding: 0.6rem 0.3rem; border-bottom: 1px solid var(--line-soft); color: var(--sumi-soft); }
+table.ledger td.mono { color: var(--sumi); }
