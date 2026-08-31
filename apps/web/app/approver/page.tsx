@@ -201,8 +201,9 @@ export default function ApproverPage() {
   }
 
   const sorted = [...warrants].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
-  const needsAction = sorted.filter((w) => ACTIONABLE_STATUSES.has(w.status));
-  const history = sorted.filter((w) => !ACTIONABLE_STATUSES.has(w.status));
+  const isSyntheticCanary = (w: MockWarrant) => w.request.ticket_ref === "SYNTHETIC-CANARY";
+  const needsAction = sorted.filter((w) => ACTIONABLE_STATUSES.has(w.status) && !isSyntheticCanary(w));
+  const history = sorted.filter((w) => !ACTIONABLE_STATUSES.has(w.status) || isSyntheticCanary(w));
   const needsActionVisible = needsAction.slice(0, needsActionShown);
   const historyVisible = history.slice(0, historyShown);
 

@@ -1161,3 +1161,69 @@ field names as speced; if Xano used different field names when it was
 built, this fix silently won't seed anything (same class of risk as
 every other "confirm the real field name" item in this file — flagged
 here rather than assumed away).
+
+## Verification of Xano AI's three Phase 7 responses (2026-08-31)
+
+Per the established Claude-proposes-prompt / Armand-pastes-response /
+Claude-verifies loop — checked against real tested code, not taken at
+face value.
+
+**RBAC (5 endpoints):** items 1, 3, 4 were shown as actual `.xs`
+Function Stack snippets and match the established pattern exactly
+(`db.get user` to hydrate `$authenticated_user` before any role check,
+since `$auth` only has `.id` — confirmed constraint from earlier
+sessions; precondition error shape matches `normalizeErrorBody()`'s
+expectation). **Items 2 (`GET /warrants` filtering) and 5
+(`GET /audit-log` ownership) were only described in prose, not shown
+as actual steps** — these are the two most safety-critical ones (a
+subtly wrong join is a cross-tenant data leak, not a crash you'd
+notice), so treat them as unverified until Xano AI shows the literal
+Function Stack for those two specifically. **Empirical test before
+trusting either:** log in as two different `requester` accounts, each
+create a request, and confirm requester A's `GET /warrants` never
+returns requester B's row, and A's `GET /audit-log?warrant_id=<B's>`
+gets `forbidden_owner`.
+
+**Hash-chain verify endpoint (item 1):** matches `audit_log.py`'s
+tested `verify_chain()`/`_content_hash()` exactly — same field set,
+same alphabetical key order (`actor, event, prev_hash, timestamp,
+warrant_id` — a direct consequence of Python's own
+`json.dumps(sort_keys=True)`, not re-derived by Xano), same timestamp
+format, same broken-row reporting shape. This one is well-grounded
+because Prompt A gave it the tested algorithm directly rather than a
+paraphrased description. "Lulus validasi sintaksis" is just Xano's own
+syntax checker, not a behavioral test — added
+`scripts/verify_audit_chain_endpoint.py`, which calls the real
+endpoint AND independently recomputes the same chain locally with our
+own tested `verify_chain()`, then diffs the two verdicts, so a subtle
+Xano-side bug (e.g. a wrong key order or off-by-one on the first row)
+gets caught by disagreement rather than trusted because it "looked"
+right. Run it, then do the actual demo rehearsal: hand-edit one row's
+`reason` in Xano's Database tab, run the script again, confirm both
+Xano's endpoint and the local recompute name the same broken row.
+
+**Synthetic canary (item 5) — three real gaps, not just "needs a
+push":**
+1. **`requested_by` is a plain `text` column, not a foreign key to the
+   `user` table** (confirmed in `docs/xano-setup.md`'s own field
+   checklist) — so Xano AI's instruction to "make sure this user
+   exists in the `user` table" is probably an unnecessary extra
+   requirement it added on its own, not something `/score`'s actual
+   logic needs. Try it without creating that account first; only add
+   it if the canary run actually fails on that specifically.
+2. **No real notification is wired up** — the response only added a
+   placeholder comment for Slack/email inside the `catch` block and
+   logs `"CANARY FAILED: ..."` internally. Prompt B asked for an
+   actual notification; what's built only satisfies "don't crash
+   silently," not "tell Armand." Fine to leave as-is for the hackathon
+   deadline (check the log manually before the demo), but don't assume
+   you'd get paged if it broke overnight.
+3. **Real clutter risk on the actual demo UI, not just cosmetic:**
+   every 15 minutes this creates a real `pending_approval` warrant with
+   `ticket_ref: "SYNTHETIC-CANARY"`. `ACTIONABLE_STATUSES` includes
+   `pending_approval`, so without a fix this would show up in the
+   Approver page's "Needs your action" queue every 15 minutes during
+   any live demo or screen recording. **Fixed in this session**:
+   `approver/page.tsx` now excludes `ticket_ref === "SYNTHETIC-CANARY"`
+   from `needsAction` (still visible in the collapsed History section,
+   so it stays auditable, just not competing for attention).
