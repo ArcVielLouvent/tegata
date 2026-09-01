@@ -14,10 +14,19 @@ or na1.fusion.foxit.com), with the app already running:
     npm run build && npm run start   # in apps/web, separate terminal
 
     export DOCTAVIAN_ACCESS_TOKEN=...          # or however your .env.local names it
-    export FOXIT_PDF_SERVICES_API_KEY=...
-    export FOXIT_PDF_SERVICES_API_SECRET=...
 
     python scripts/verify_stretch_document_routes.py --base-url http://localhost:3000
+
+You do NOT need to set anything Foxit-specific for this script itself:
+`npm run start` already reads FOXIT_ESIGN_API_KEY/SECRET from your real
+`.env`/`.env.local` file (the ones eSign signing already uses), and
+foxitPdfServicesClient.ts's own loadFoxitPdfServicesConfigFromEnv()
+already falls back to those same two vars automatically -- see that
+file's module docstring. There is no FOXIT_PDF_SERVICES_API_KEY/SECRET
+in this project's .env.example; only set those two if it turns out
+your eSign credentials specifically 401 against the PDF Services base
+URL and a separate credential pair is actually required (unconfirmed
+either way until this script is actually run once).
 
 None of these three routes look anything up in Xano -- they take
 warrant fields directly as JSON input (see each route.ts's own
