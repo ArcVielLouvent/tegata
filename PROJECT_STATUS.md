@@ -1227,3 +1227,52 @@ push":**
    `approver/page.tsx` now excludes `ticket_ref === "SYNTHETIC-CANARY"`
    from `needsAction` (still visible in the collapsed History section,
    so it stays auditable, just not competing for attention).
+
+## Real resource gateway + fixed audit-verify script + Stretch B/E/item4 test script (2026-08-31)
+
+**A real gap found in item 1's RBAC (2026-08-31, from Armand's own
+manual cross-account test):** `GET /warrants/{id}/audit/verify` returns
+HTTP 200 with a bare `null` body for a warrant the caller doesn't own
+— NOT the `403 forbidden_owner` that `GET /audit-log` correctly
+returns for the exact same scenario. `verify_audit_chain_endpoint.py`
+used to crash on this (`AttributeError` on `None.get(...)`) instead of
+reporting it — fixed to print a clear FINDING instead, and to stop
+treating a non-2xx from `GET /audit-log` as "0 rows" (that was masking
+a 403 as if the chain were legitimately empty, a second, separate
+script bug). **Still needs a Xano-side fix**: ask Xano AI to make
+`GET /warrants/{warrant_id}/audit/verify` match `GET /audit-log`'s
+existing ownership-check pattern exactly (same precondition + same
+`forbidden_owner` error shape) instead of whatever it's currently
+doing that produces a bare `null`.
+
+**The bigger point Armand raised, and it's correct:** every "access
+granted" moment in this project so far has only ever been a `status`
+field changing color in Xano's own dashboard, which Armand can edit
+directly by hand at any time — that's not a stand-in for what a real
+downstream system enforcing this would do. Added the actual missing
+piece: `GET /api/resource/[resource]` (Next.js server route) — takes
+the caller's real bearer token, asks Xano's own `GET /warrants` for
+that token fresh on every single call (no caching, no trusting
+anything the browser claims about its own state), and only releases
+the (demo) protected content if it finds a `status==="active"`,
+not-yet-expired warrant for that exact resource. Paired with a demo
+page at `/resource/[resource]` that polls this every 10s, so an
+expiring warrant visibly flips back to denied on its own without a
+page refresh — try hitting `/resource/internal_wiki` before and after
+a request gets approved and signed, that round-trip is the actual
+enforcement proof the project claims to make, not the UI.
+
+**Added `scripts/verify_stretch_document_routes.py`** — a real-network
+smoke test for the 3 document routes that have never been run against
+real Doctavian/Foxit PDF Services (`generate-progressive`,
+`generate-dual`, `verify-consistency`). None of these three routes
+look anything up in Xano (they take warrant fields as plain JSON
+input, confirmed by reading each route's own body type), so the
+script fabricates a plausible warrant payload rather than needing a
+real one first. It can't assert PASS/FAIL for the two PDF-generation
+routes on its own (a human has to open the PDFs) but it does run the
+full round-trip including saving files to disk, and it runs
+`verify-consistency`'s positive case automatically (checking a
+just-generated PDF against the exact facts it was built from) — the
+negative case (an unrelated PDF that should be flagged inconsistent)
+still needs a manual run, noted in the script's own docstring.

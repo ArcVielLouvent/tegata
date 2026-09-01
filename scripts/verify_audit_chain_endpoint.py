@@ -93,10 +93,26 @@ def main():
         print(f"   FAIL: response wasn't JSON at all: {resp.text[:500]!r}")
         sys.exit(1)
     print(f"   Xano says: {xano_result}")
+    if not isinstance(xano_result, dict):
+        print(f"\n   FINDING: HTTP {resp.status_code} but the body is {xano_result!r}, not the")
+        print("   {intact, checked_count, ...} object the endpoint is supposed to return.")
+        print("   A 200 with a null/empty body for a warrant you don't own is a real gap, not")
+        print("   a script bug: GET /audit-log correctly 403s for a non-owner in the same test,")
+        print("   so this endpoint's ownership check either isn't wired the same way, or the")
+        print("   underlying query/response step never actually ran. This needs to go back to")
+        print("   Xano AI with this exact reproduction (see the reply below).")
+        sys.exit(2)
 
     print(f"\n2. Calling GET /audit-log?warrant_id={args.warrant_id} for the raw rows ...")
     resp2 = requests.get(f"{base_url}/audit-log", params={"warrant_id": args.warrant_id}, headers=headers)
     print(f"   HTTP {resp2.status_code}")
+    if resp2.status_code >= 400:
+        print(f"   FINDING: {resp2.status_code} — you don't have access to this warrant's audit")
+        print(f"   log (body: {resp2.text[:300]!r}). That's a DIFFERENT, more basic problem than")
+        print("   'chain intact or not' — can't cross-check the hash chain at all without the raw")
+        print("   rows. If you expected to own this warrant, that's the actual bug to chase; if")
+        print("   you don't own it, this 403 is doing exactly what item 5's RBAC is supposed to do.")
+        sys.exit(2)
     raw_rows = resp2.json()
     if isinstance(raw_rows, dict):
         # Unconfirmed which wrapper shape this endpoint actually uses --
