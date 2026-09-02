@@ -156,7 +156,7 @@ def test_verify_consistency(base_url: str, dual_result: dict | None) -> bool:
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--base-url", default="http://localhost:3000")
-    parser.add_argument("--out-dir", default="/tmp/tegata-phase7-smoke")
+    parser.add_argument("--out-dir", default="./phase7-smoke-output")
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir)
