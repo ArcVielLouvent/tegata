@@ -19,6 +19,17 @@
  * dead-ending.
  */
 export const runtime = "nodejs";
+// This route's fallback chain (Gemini -> Groq -> OpenRouter, see
+// llmClient.ts's PROVIDER_TIMEOUT_MS) can take up to ~45s in the worst
+// case if the first two providers both time out before the third
+// succeeds. Vercel's *default* serverless function timeout is well
+// under that (10s on Hobby, 15s elsewhere unless raised) -- without
+// this, a slow provider wouldn't just be slow, it would 504 the whole
+// request even though the LLM call itself was still in flight and
+// might have succeeded a few seconds later. Railway has no such limit
+// (it runs `next start` as a persistent server), so this line is a
+// no-op there -- it only matters for Vercel/other serverless targets.
+export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
 import { buildDefaultFallbackClient, AllProvidersFailedError } from "../../../../lib/llmClient";

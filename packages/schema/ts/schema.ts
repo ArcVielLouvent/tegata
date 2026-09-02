@@ -29,6 +29,11 @@ export const AccessRequestSchema = z
     requested_duration_minutes: z.number().int().min(1).max(1440),
     ticket_ref: z.string().nullable().optional(),
     requested_by: z.string().optional(),
+    // Extension-request link (Phase 7 Stretch F): set when this request is
+    // an EXTENSION of an existing active/expired warrant. The original
+    // warrant is never mutated -- this is a separate request/approval for
+    // a new time window, linked for traceability only.
+    related_warrant_id: z.string().nullable().optional(),
   })
   .strict();
 export type AccessRequest = z.infer<typeof AccessRequestSchema>;

@@ -907,3 +907,406 @@ fix is confirmed by reading the render logic and matching it exactly
 against the CI failure's error output, not by re-running the suite.
 Run `npm run test:e2e` locally or push to CI to get that final
 confirmation before merging to `main`.
+
+## Phase 7 branch opened (2026-08-30) — separate from Phase 6, stacked on top of it
+
+Per Armand's instruction: Phase 7 gets its OWN branch
+(`phase/7-stretch-features`) rather than being folded into Phase 6's
+commits, but it's branched from Phase 6's current tip (`d32c87b`,
+NOT `main`) since Phase 6 still has open bugs (see the section right
+above this one and the "Still open (Xano-side...)" notes in the
+`eafd9eb`/`05c39ef`/`d32c87b` commit messages) and hasn't merged to
+`main` yet. `.github/workflows/phase-7.yml` added, mirroring the
+Phase 0-6 CI pattern (Python regression + TS typecheck/build) — no
+feature-specific job yet since nothing below has real code in this
+branch yet.
+
+**SECURITY REMINDER carried over from `05c39ef`'s commit message,
+not yet acted on:** Armand pasted real Foxit `client_id`/
+`client_secret` values in chat while sharing dashboard sample code
+for diagnosis. Treat those as exposed — rotate them in the Foxit
+dashboard, independent of whether Phase 6's signing pipeline is
+confirmed working yet.
+
+### Phase 7 scope, in `docs/tegata-concept.md`'s own suggested order (C→B→E→A→D)
+
+`docs/tegata-concept.md` §7 explains the ordering rationale: hash-chain
+and OCR-check "most directly reinforce the core security argument and
+are cheapest to build," redaction/canary "need more additional state."
+ROADMAP.md's numbered list is priority order too but doesn't carry
+this reasoning — recorded here so it isn't lost again.
+
+**Update (2026-08-30):** items 2 and 3 below have real code now (this
+branch, not yet end-to-end tested — see each item). Per Armand's
+instruction, items 1 and 5 (both Xano-only) are notes-only for now, to
+be built more specifically later (presumably via Xano's AI agent, same
+as §9/§13's endpoints) rather than full specs like §13's.
+
+1. **Hash-chained audit log demo (Xano) — NOTES ONLY, not built.** The
+   hashing PRIMITIVE already exists and is tested (`audit_log.py`,
+   built in Phase 5 — see that file's own SCOPE NOTE docstring, added
+   this session to stop this from getting "rediscovered" as
+   un-built). What Phase 7 actually adds is narrower than it sounds:
+   the live demo moment — deliberately corrupt a stored row in the
+   real Xano `audit_log` table, show detection catch it on camera.
+   Rough shape for later: a Xano endpoint (e.g. `GET
+   /warrants/{id}/audit/verify`) that re-walks that warrant's audit
+   log rows in order, recomputes each entry's `hash` from its own
+   content + the previous row's `hash` (same canonical-JSON +ordered
+   deterministic approach as `audit_log.py`'s `_content_hash()` — keys
+   sorted, ISO-8601 UTC timestamps, see that function's own
+   docstring for the exact format to match), and returns which row (if
+   any) breaks the chain. The demo moment is: hand-edit one row's
+   `reason` or `actor` field directly in Xano's Database tab, call
+   this endpoint, show it names the exact broken row. No dependency on
+   items 2/3 below.
+2. **OCR self-consistency check (Foxit) — CODE WRITTEN, not tested
+   end-to-end.** `apps/web/lib/foxitPdfServicesClient.ts` (4-step
+   upload → extract → poll → download, confirmed against a real fetch
+   of Foxit's own developer docs, not guessed) +
+   `apps/web/lib/ocrConsistencyCheck.ts` (ZIP parsing + fact
+   comparison) + `POST /api/documents/verify-consistency`. Verified so
+   far: the ZIP-parsing/comparison logic against a hand-built fake
+   result matching Foxit's confirmed real schema (both a
+   matching-facts case and a deliberately-tampered case correctly
+   passed/failed), tsc/build clean, the route's `config_error` path.
+   **NOT verified:** the actual 4 REST calls against real Foxit (this
+   sandbox can't reach `na1.fusion.foxit.com`), and — the one real
+   unconfirmed assumption — whether the existing `FOXIT_ESIGN_API_KEY`/
+   `SECRET` credentials work for this DIFFERENT Foxit product (PDF
+   Services, not eSign) or whether a separate credential pair is
+   needed. Try the existing ones first (that's the default).
+3. **Dual-audience document generation (Doctavian) — CODE WRITTEN, not
+   tested end-to-end.** New template `apps/web/assets/tegata-runbook.docx`
+   (and `docs/templates/tegata-runbook.docx`), built by cloning
+   `tegata-warrant.docx`'s own OOXML package and swapping only its
+   `word/document.xml` — same confirmed merge-field syntax (`{!name}`,
+   `<mdoc:paragraph name="X" hidden="{!$expr}">`) as the
+   already-working warrant template, not new/guessed syntax. New
+   `apps/web/lib/dualAudienceDocuments.ts` + `POST
+   /api/documents/generate-dual`, reusing `doctavianClient.ts`'s
+   `generateDocument()`/`uploadTemplate()`/`uploadData()`/
+   `downloadDocument()` completely unchanged (that pipeline is already
+   confirmed working in Phase 6's `/api/documents/prepare`). Verified:
+   the runbook docx round-trips as a valid ZIP with the right merge
+   fields present, tsc/build clean, the route's `config_error` path.
+   **NOT verified:** an actual Doctavian call with this second
+   template (needs `DOCTAVIAN_ACCESS_TOKEN` set — same short-lived
+   OAuth token constraint as the existing warrant template).
+4. **Progressive disclosure (Doctavian, PIVOTED from Foxit redaction) —
+   CODE WRITTEN, not tested end-to-end.** Researched 2026-08-30 (real
+   web search): Foxit's actual redaction product is "Smart Redact," a
+   separate Foxit PDF Editor+ plugin / "Smart Redact Server" cloud
+   product with its OWN subscription — NOT part of the eSign or PDF
+   Services REST APIs this project already has developer keys for.
+   Rather than guess at an API that doesn't exist for this purpose,
+   pivoted to reuse Doctavian's already-confirmed conditional-paragraph
+   templating (same `<mdoc:paragraph hidden="{!$expr}">` mechanism
+   already proven in the warrant/runbook templates) — new template
+   `apps/web/assets/tegata-warrant-progressive.docx` with a
+   `reveal_level` variable gating a "technical execution details"
+   section, `apps/web/lib/progressiveDisclosureDocument.ts` + `POST
+   /api/documents/generate-progressive`. Verified: template round-trips
+   as valid ZIP with both conditional blocks present, tsc/build clean,
+   route's `config_error` path. **NOT verified:** an actual Doctavian
+   call (needs `DOCTAVIAN_ACCESS_TOKEN`). **Real limitation, not
+   overclaimed:** this only GENERATES a document at a given
+   `reveal_level` on request — it's not wired to auto-regenerate after
+   a real first-signature event, because xano mode has no
+   per-signature progress tracking yet (see `apiClient.ts`'s own module
+   docstring) to detect "the first of 2 signatures just landed" as an
+   event at all. Call manually (`reveal_level: "redacted"` at request
+   time, `"full"` once that gap closes or for a manual demo) until
+   that's solved.
+5. **Synthetic canary warrant (Xano) — NOTES + explicit build prompt
+   below, not built.**
+
+**Isolation decision for items 2 and 3:** both new routes
+(`/api/documents/verify-consistency`, `/api/documents/generate-dual`)
+are deliberately NOT wired into the existing
+`/api/documents/prepare`/Approver-page signing pipeline — that
+pipeline is still being debugged live against Phase 6's open bugs (see
+the Phase 6 sections above), and bolting untested new code into it
+risks breaking something that's currently making real progress. Call
+these two routes independently once Phase 6's core flow is confirmed
+stable.
+
+Phase 6's own open bugs (GET /warrants "Missing param: status", /score
+not transitioning to pending_approval, the generic "Precondition
+failed" on /warrants/transition, Foxit's createfolder end-to-end not
+yet confirmed working) are Phase 6 concerns and stay tracked there,
+not duplicated into this section.
+
+## Stretch F: extension requests (2026-08-30) — identified live, added and built same session
+
+Armand raised this as a design question mid-session, not from
+ROADMAP.md/`tegata-concept.md`'s original 5 stretch items: what
+happens when a developer's time estimate is wrong, or a fix touches
+more than expected, and the requested window runs out mid-task?
+Confirmed by reading the actual code before answering (not guessed):
+`state_machine.py`'s `VALID_TRANSITIONS["active"] = {"expired",
+"revoked"}` — both terminal, no way back — and `ttl.py`'s
+`is_expired()` is a strict `now >= expires_at` boundary with no grace
+period. **Nothing handled this.** This is a real operational risk for
+any hard-TTL JIT system: an abrupt mid-operation cutoff can be worse
+than either finishing or never starting, if the interrupted operation
+wasn't designed to be safely resumable.
+
+**Design decision:** an extension is a **brand-new warrant**, never a
+mutation of the original (warrants are immutable — that's load-bearing
+for the audit trail's integrity guarantee). Linked via a new optional
+`related_warrant_id` field for traceability only. Goes through the
+EXACT same scoring + approval pipeline as any other request — no
+self-service extension, ever; that would defeat the entire point of
+"time-boxed." The only thing this feature actually adds is the
+**link** and a **UI to request one proactively before running out**,
+not a new approval shortcut.
+
+**Built this session (schema + mock mode + Requester UI):**
+- `related_warrant_id` (optional, nullable) added to `AccessRequest`
+  in all three schema sources — `packages/schema/tegata.schema.json`,
+  `packages/schema/python/models.py`, `packages/schema/ts/schema.ts`.
+  Both cross-language consistency tests
+  (`tests/test_schema_consistency.py`, `tests/schema_consistency.test.ts`)
+  pass unchanged (the field is optional, doesn't affect required-field
+  checks).
+- `apps/web/lib/ttl.ts`: TS port of `ttl.py`'s `seconds_until_expiry()`
+  (display-only — the real enforcement stays server-side, this file
+  says so explicitly in its own docstring so it's never mistaken for
+  the actual access-control check).
+- Requester page (`app/page.tsx`): new "My requests" section listing
+  the user's warrants via the existing `listWarrants()`, with a live
+  countdown for `active` ones (updates every second) and a "Request
+  extension" button (shown always on active warrants, labeled
+  "expiring soon!" once under 5 minutes remaining). Clicking it
+  pre-fills the request form (same resource, reason prefixed with
+  "Extension of {warrant_id}: ...", ticket ref carried over) and shows
+  a dismissible banner confirming this submission will be linked, not
+  a silent extension.
+- **Verified end-to-end against the real mock backend** (not just
+  typechecked): created a warrant, signed it to `active`, submitted a
+  second request with `related_warrant_id` pointing at the first,
+  confirmed both warrants coexist correctly in `GET /warrants` with
+  the link intact and the original completely untouched (still
+  `active`, `related_warrant_id: null` on itself). tsc/build clean,
+  full Python regression 137/137, ruff clean.
+
+### Xano-side changes needed — NOTES ONLY, not built (per instruction: separate notes for anything needing a Xano platform edit)
+
+1. **`warrants` table**: add `related_warrant_id` column (text,
+   nullable) — mirrors the schema field above.
+2. **`POST /score`**: accept the new optional `related_warrant_id`
+   input and store it on the warrant row un-modified (no validation
+   logic needed beyond "it's a string or null" — this is a
+   traceability link, not something that changes scoring or approval
+   behavior. Deliberately NOT validating that it references a real
+   existing warrant_id at this layer — that's a nice-to-have integrity
+   check for later, not a blocker for the feature to work).
+3. **`GET /warrants` / `GET /warrants/{id}`**: make sure
+   `related_warrant_id` is included in the returned `request` object
+   (should be automatic if it's just another column being selected the
+   same way `ticket_ref` already is — no special-casing expected, but
+   worth confirming given this project's history of Xano response
+   shapes not matching assumptions on the first try).
+4. **Nothing else changes** — approval, signing, and activation for an
+   extension warrant reuse every existing endpoint (`/score` ->
+   `/warrants/attach-envelope` -> `/warrants/confirm-signature` or the
+   legacy `/warrants/transition` path) completely unmodified. This is
+   the smallest possible Xano-side change of any stretch item so far.
+
+## Explicit Xano AI build prompts for items 1 and 5 (2026-08-30)
+
+Both below are written to paste directly to Xano's AI agent, same as
+the §9/§13 prompts earlier in this file — explicit inputs, explicit
+logic, explicit field names, grounded in the actual confirmed
+algorithm in this repo's own code (not re-derived or approximated).
+
+### Prompt A — Hash-chain verify endpoint (Stretch item 1)
+
+> Saya perlu 1 endpoint baru untuk workspace Tegata Core yang sudah ada:
+>
+> **`GET /warrants/{warrant_id}/audit/verify`** (Private/auth required, sama seperti endpoint warrant lainnya)
+>
+> Logic:
+> 1. Ambil semua row dari tabel `audit_log` yang `warrant_id`-nya cocok, urutkan berdasarkan `timestamp` ascending (paling lama duluan). Kalau kosong, return `{"intact": true, "checked_count": 0}`.
+> 2. Loop tiap row secara berurutan, dengan variabel `previous_hash` yang mulai dari `null`:
+>    a. Cek: apakah `row.prev_hash` row ini sama dengan `previous_hash` (hasil dari row sebelumnya)? Kalau row pertama, `previous_hash` harus `null`.
+>    b. Hitung ulang hash konten row ini sendiri: bikin objek JSON persis begini (urutan key harus **alfabetis**: `actor`, `event`, `prev_hash`, `timestamp`, `warrant_id`), lalu serialize ke string JSON **tanpa spasi** (separator `,` dan `:` doang, bukan `, ` dan `: `), lalu SHA-256 hash string itu jadi hex string.
+>       - `actor`: value dari `row.actor` (bisa `null`)
+>       - `event`: value dari `row.event`
+>       - `prev_hash`: value dari `row.prev_hash` (bisa `null`)
+>       - `timestamp`: `row.timestamp` diformat ulang jadi string **persis** `YYYY-MM-DDTHH:MM:SSZ` (UTC, presisi detik, akhiran huruf `Z`) — BUKAN format ISO default yang ada offset `+00:00` atau microsecond.
+>       - `warrant_id`: value dari `row.warrant_id`
+>    c. Bandingkan hash yang baru dihitung itu sama `row.hash` yang tersimpan. Kalau BEDA, atau kalau langkah (a) di atas gagal — STOP loop, return `{"intact": false, "broken_at_index": <index row ini, mulai dari 0>, "broken_entry_id": row.entry_id, "checked_count": <jumlah row yang udah dicek termasuk yang ini>}`.
+>    d. Kalau cocok semua: `previous_hash` = `row.hash`, lanjut ke row berikutnya.
+> 3. Kalau semua row lolos: return `{"intact": true, "checked_count": <total row>}`.
+>
+> Ini buat demo: saya bakal sengaja ubah manual 1 field (misal `reason` atau `actor`) di 1 row lewat Database tab Xano, terus panggil endpoint ini buat buktiin dia bisa nunjuk row mana yang rusak.
+
+### Prompt B — Synthetic canary warrant (Stretch item 5)
+
+> Saya perlu 1 scheduled task baru di workspace Tegata Core:
+>
+> **Scheduled task**, jalan tiap [ISI SENDIRI — misal tiap 30 menit, terserah kamu], Function Stack-nya:
+> 1. Panggil Function Stack yang sama persis dengan yang dipakai `POST /score` (reuse logic-nya, jangan duplikat manual), dengan input:
+>    - `resource`: `"internal_wiki"`
+>    - `reason`: `"Automated health check — safe to ignore"`
+>    - `requested_duration_minutes`: `5`
+>    - `ticket_ref`: `"SYNTHETIC-CANARY"`
+>    - `requested_by`: `"canary@tegata.internal"`
+> 2. Kalau panggilan itu GAGAL (error apapun, bukan response sukses normal) ATAU hasilnya `risk_score.tier` bukan `"low"` (harusnya selalu low untuk `internal_wiki` — kalau bukan low, berarti risk engine-nya sendiri yang berubah perilaku, itu tanda bahaya): kirim notifikasi [ISI SENDIRI — email/Slack/apapun yang didukung scheduled task Xano kamu] yang isinya jelas nyebut ini canary warrant gagal, plus detail errornya.
+> 3. Kalau sukses dan `tier` beneran `"low"`: gak perlu notifikasi apa-apa, cukup biarin warrant-nya kebuat normal (biar gampang di-filter belakangan lewat `ticket_ref = "SYNTHETIC-CANARY"` kalau mau di-cleanup atau dikecualikan dari dashboard/reporting beneran).
+>
+> Ini versi paling ringan — cuma ngecek `/score` doang, gak sampai ke Doctavian/Foxit. Kalau nanti mau diperdalam sampai ke tahap prepare-signature, kasih tau saya, itu perlu langkah tambahan yang manggil route Next.js (`/api/documents/prepare`), bukan cuma di dalam Xano sendiri.
+
+## Bug fix: Foxit-embed signing state lost on navigation/logout (2026-08-30, additional)
+
+Armand reported: signed inside the Foxit iframe but hadn't clicked
+"I've signed — confirm" yet, then navigated away or logged out — the
+UI reset and asked to prepare (generate a brand-new document + Foxit
+envelope) all over again, discarding a perfectly good envelope that
+was already waiting to be confirmed.
+
+Root cause: the Approver page's `prepared` state (holding
+`folder_id`/`signing_url`/`document_hash`) was **only ever** local
+React `useState` — nothing durable. But §13b's `attach-envelope`
+endpoint already stores exactly this data on the warrant row in Xano
+(`document_id`, `foxit_folder_id`, `foxit_signing_url`,
+`document_hash`) — the durable copy existed the whole time, the
+frontend just never read it back.
+
+Fixed in two places:
+1. `apiClient.ts`'s `normalizeWarrant()` now maps those 3 fields
+   through from Xano's response (previously not mapped at all — also
+   fixed `ticket_ref` and `related_warrant_id`, which had the exact
+   same silent-drop bug, found while making this fix. `related_warrant_id`
+   specifically would have broken Stretch F's "(extension of ...)" UI
+   note the first time it was tested in xano mode).
+2. Approver page's `refresh()` now seeds `prepared` from any warrant
+   that already has `foxit_folder_id` set, every time it runs (not
+   just once at mount) — Xano's stored value wins over local state,
+   since local state can't survive a reload anyway.
+
+Verified: tsc/build clean, mock mode re-smoke-tested unaffected
+(mock warrants never have `foxit_folder_id` set, so this path is a
+no-op there). **NOT verified against real Xano** — depends on §13b
+actually storing and §13c/GET /warrants actually returning these
+field names as speced; if Xano used different field names when it was
+built, this fix silently won't seed anything (same class of risk as
+every other "confirm the real field name" item in this file — flagged
+here rather than assumed away).
+
+## Verification of Xano AI's three Phase 7 responses (2026-08-31)
+
+Per the established Claude-proposes-prompt / Armand-pastes-response /
+Claude-verifies loop — checked against real tested code, not taken at
+face value.
+
+**RBAC (5 endpoints):** items 1, 3, 4 were shown as actual `.xs`
+Function Stack snippets and match the established pattern exactly
+(`db.get user` to hydrate `$authenticated_user` before any role check,
+since `$auth` only has `.id` — confirmed constraint from earlier
+sessions; precondition error shape matches `normalizeErrorBody()`'s
+expectation). **Items 2 (`GET /warrants` filtering) and 5
+(`GET /audit-log` ownership) were only described in prose, not shown
+as actual steps** — these are the two most safety-critical ones (a
+subtly wrong join is a cross-tenant data leak, not a crash you'd
+notice), so treat them as unverified until Xano AI shows the literal
+Function Stack for those two specifically. **Empirical test before
+trusting either:** log in as two different `requester` accounts, each
+create a request, and confirm requester A's `GET /warrants` never
+returns requester B's row, and A's `GET /audit-log?warrant_id=<B's>`
+gets `forbidden_owner`.
+
+**Hash-chain verify endpoint (item 1):** matches `audit_log.py`'s
+tested `verify_chain()`/`_content_hash()` exactly — same field set,
+same alphabetical key order (`actor, event, prev_hash, timestamp,
+warrant_id` — a direct consequence of Python's own
+`json.dumps(sort_keys=True)`, not re-derived by Xano), same timestamp
+format, same broken-row reporting shape. This one is well-grounded
+because Prompt A gave it the tested algorithm directly rather than a
+paraphrased description. "Lulus validasi sintaksis" is just Xano's own
+syntax checker, not a behavioral test — added
+`scripts/verify_audit_chain_endpoint.py`, which calls the real
+endpoint AND independently recomputes the same chain locally with our
+own tested `verify_chain()`, then diffs the two verdicts, so a subtle
+Xano-side bug (e.g. a wrong key order or off-by-one on the first row)
+gets caught by disagreement rather than trusted because it "looked"
+right. Run it, then do the actual demo rehearsal: hand-edit one row's
+`reason` in Xano's Database tab, run the script again, confirm both
+Xano's endpoint and the local recompute name the same broken row.
+
+**Synthetic canary (item 5) — three real gaps, not just "needs a
+push":**
+1. **`requested_by` is a plain `text` column, not a foreign key to the
+   `user` table** (confirmed in `docs/xano-setup.md`'s own field
+   checklist) — so Xano AI's instruction to "make sure this user
+   exists in the `user` table" is probably an unnecessary extra
+   requirement it added on its own, not something `/score`'s actual
+   logic needs. Try it without creating that account first; only add
+   it if the canary run actually fails on that specifically.
+2. **No real notification is wired up** — the response only added a
+   placeholder comment for Slack/email inside the `catch` block and
+   logs `"CANARY FAILED: ..."` internally. Prompt B asked for an
+   actual notification; what's built only satisfies "don't crash
+   silently," not "tell Armand." Fine to leave as-is for the hackathon
+   deadline (check the log manually before the demo), but don't assume
+   you'd get paged if it broke overnight.
+3. **Real clutter risk on the actual demo UI, not just cosmetic:**
+   every 15 minutes this creates a real `pending_approval` warrant with
+   `ticket_ref: "SYNTHETIC-CANARY"`. `ACTIONABLE_STATUSES` includes
+   `pending_approval`, so without a fix this would show up in the
+   Approver page's "Needs your action" queue every 15 minutes during
+   any live demo or screen recording. **Fixed in this session**:
+   `approver/page.tsx` now excludes `ticket_ref === "SYNTHETIC-CANARY"`
+   from `needsAction` (still visible in the collapsed History section,
+   so it stays auditable, just not competing for attention).
+
+## Real resource gateway + fixed audit-verify script + Stretch B/E/item4 test script (2026-08-31)
+
+**A real gap found in item 1's RBAC (2026-08-31, from Armand's own
+manual cross-account test):** `GET /warrants/{id}/audit/verify` returns
+HTTP 200 with a bare `null` body for a warrant the caller doesn't own
+— NOT the `403 forbidden_owner` that `GET /audit-log` correctly
+returns for the exact same scenario. `verify_audit_chain_endpoint.py`
+used to crash on this (`AttributeError` on `None.get(...)`) instead of
+reporting it — fixed to print a clear FINDING instead, and to stop
+treating a non-2xx from `GET /audit-log` as "0 rows" (that was masking
+a 403 as if the chain were legitimately empty, a second, separate
+script bug). **Still needs a Xano-side fix**: ask Xano AI to make
+`GET /warrants/{warrant_id}/audit/verify` match `GET /audit-log`'s
+existing ownership-check pattern exactly (same precondition + same
+`forbidden_owner` error shape) instead of whatever it's currently
+doing that produces a bare `null`.
+
+**The bigger point Armand raised, and it's correct:** every "access
+granted" moment in this project so far has only ever been a `status`
+field changing color in Xano's own dashboard, which Armand can edit
+directly by hand at any time — that's not a stand-in for what a real
+downstream system enforcing this would do. Added the actual missing
+piece: `GET /api/resource/[resource]` (Next.js server route) — takes
+the caller's real bearer token, asks Xano's own `GET /warrants` for
+that token fresh on every single call (no caching, no trusting
+anything the browser claims about its own state), and only releases
+the (demo) protected content if it finds a `status==="active"`,
+not-yet-expired warrant for that exact resource. Paired with a demo
+page at `/resource/[resource]` that polls this every 10s, so an
+expiring warrant visibly flips back to denied on its own without a
+page refresh — try hitting `/resource/internal_wiki` before and after
+a request gets approved and signed, that round-trip is the actual
+enforcement proof the project claims to make, not the UI.
+
+**Added `scripts/verify_stretch_document_routes.py`** — a real-network
+smoke test for the 3 document routes that have never been run against
+real Doctavian/Foxit PDF Services (`generate-progressive`,
+`generate-dual`, `verify-consistency`). None of these three routes
+look anything up in Xano (they take warrant fields as plain JSON
+input, confirmed by reading each route's own body type), so the
+script fabricates a plausible warrant payload rather than needing a
+real one first. It can't assert PASS/FAIL for the two PDF-generation
+routes on its own (a human has to open the PDFs) but it does run the
+full round-trip including saving files to disk, and it runs
+`verify-consistency`'s positive case automatically (checking a
+just-generated PDF against the exact facts it was built from) — the
+negative case (an unrelated PDF that should be flagged inconsistent)
+still needs a manual run, noted in the script's own docstring.

@@ -40,20 +40,76 @@ Free-text request
   [Hard schema validation]  ← NOT the LLM — the real gatekeeper
         │
         ▼
-     [Xano]  → compute risk score → drive state machine
+  [Risk scoring + approval requirement]  ← resource sensitivity, time, duration, history
         │
         ▼
-  [Doctavian]  → assemble document, approval structure changes with score
+  [Doctavian: risk-scored conditional document]  ← genuinely different clauses per tier
         │
         ▼
-   [Foxit eSign]  → human reads & signs (agent stops entirely here)
+  [Foxit eSign: human signature]  ← architecturally can't be bypassed by an agent
         │
         ▼
-     [Xano]  → verify signature + anti-replay → access active
+  [Xano: state machine, RBAC, hash-chained audit log, auto-expire]
         │
         ▼
-   Auto-expire (TTL) → permanent audit trail
+  [The actual gated resource]  ← re-checked against Xano fresh on every access,
+                                  not a client-side flag — see "The enforcement
+                                  proof" below
 ```
+
+---
+
+## The enforcement proof
+
+Every other "access granted" moment in a demo like this risks being just a
+status field changing color in a dashboard — something anyone with database
+access can edit by hand, proving nothing about real enforcement. Tegata
+includes an actual protected endpoint (`GET /api/resource/[resource]`,
+demoed at `/resource/internal_wiki`) that independently asks Xano, fresh, on
+every single request, whether the caller currently holds an active,
+unexpired warrant for that exact resource — before releasing anything.
+Nothing about that decision is cached or trusted from the client. Try
+loading it before requesting access (denied), after your request is signed
+(granted, with a live expiry timestamp), and after it expires (denied again,
+automatically, without anyone touching the database).
+
+---
+
+## What's built (Phase 7, current)
+
+Beyond the core flow above:
+
+- **RBAC across every endpoint** — a `requester` only ever sees their own
+  requests and audit trail; role-gated actions (transitioning a warrant,
+  attaching an envelope, confirming a signature) reject anyone but
+  `approver`/`security_admin`. Verified with real cross-account tests, not
+  just read from the Function Stack.
+- **Tamper-evident audit log** — every entry is a SHA-256 hash of its own
+  content plus the previous entry's hash; a `GET .../audit/verify` endpoint
+  independently recomputes and confirms the whole chain, and
+  `scripts/verify_audit_chain_endpoint.py` cross-checks Xano's answer
+  against a second, independent local recomputation rather than trusting
+  either one alone.
+- **Anti-replay** — signing an already-active warrant again is rejected,
+  not just hidden by the UI.
+- **Progressive disclosure** — a warrant's document withholds technical
+  execution details (the literal grant command) until a first approver has
+  signed, via Doctavian's own conditional-paragraph templating.
+- **Dual-audience document generation** — the same warrant generates both a
+  formal grant document and a separate operator runbook with copy-pasteable
+  commands.
+- **OCR self-consistency check** — verifies a generated PDF's actual visible
+  text matches the facts it was supposed to be built from.
+- **Extension requests** — requesting more time on an active warrant creates
+  a brand-new linked request needing its own approval; the original grant
+  is never silently modified.
+- **Synthetic canary** — a scheduled task exercises the scoring → hashing →
+  state-machine pipeline every 15 minutes using a synthetic low-risk
+  request, filtered out of the real approval queue so it never gets in an
+  approver's way.
+
+See `docs/demo-video-script.md` for a full walkthrough of all of the above,
+and `PROJECT_STATUS.md` for the underlying evidence behind each claim.
 
 ---
 
@@ -91,9 +147,9 @@ tegata/
 
 | Sponsor | Status |
 |---|---|
-| **Doctavian** | Credentials received. Integration built and **confirmed working end-to-end** (Phase 2): risk-scored documents generate with genuinely different approval clauses per tier, using Doctavian's own `{!fieldname}`/`{!$expression}`/`mdoc:paragraph` templating syntax (confirmed directly by their engineering team — see `docs/doctavian-samples/`). |
-| **Foxit** | eSign API credentials received. Integration built and **confirmed working end-to-end** (Phase 3/4): envelope creation, real signature round-trip, status polling, and signed-file download all verified against the live API. |
-| **Xano** | Registered, workspace built (first pass, via Xano's own AI agent — see `PROJECT_STATUS.md`'s "Xano setup" section): tables, Function Stack functions, endpoints, RBAC, and the scheduled auto-expire task are all in place. **Verification against the Python reference is the current open item** — see `docs/xano-verification-worksheet.md` for the exact cases to check. |
+| **Doctavian** | Credentials received. Integration built and **confirmed working end-to-end**: risk-scored documents generate with genuinely different approval clauses per tier, plus progressive-disclosure and dual-audience document generation (Phase 7), using Doctavian's own `{!fieldname}`/`{!$expression}`/`mdoc:paragraph` templating syntax (confirmed directly by their engineering team — see `docs/doctavian-samples/`). |
+| **Foxit** | eSign API credentials received. Integration built and **confirmed working end-to-end**: envelope creation, real signature round-trip (including a genuinely rejected replay attempt), status polling, and signed-file download all verified against the live API. |
+| **Xano** | Full RBAC, hash-chain audit verification, and the synthetic canary scheduled task are built and **verified against real cross-account tests** (not just read from the Function Stack) — see `PROJECT_STATUS.md`'s Phase 7 verification notes for exactly what was tested and how. `docs/xano-verification-worksheet.md` still has the original phase-by-phase reference cases if you want to re-verify from scratch. |
 
 > See `PROJECT_STATUS.md` for the full, current, honest status of each integration — this table is a summary, not the source of truth.
 
@@ -102,7 +158,7 @@ tegata/
 ## Running the Project
 
 ```bash
-# Agent (Python) — 137 tests as of Phase 6
+# Agent (Python) — 137 tests
 cd apps/agent
 pip install -r requirements.txt
 pytest
@@ -114,15 +170,22 @@ python scripts/verify_doctavian_template.py docs/templates/tegata-warrant.docx
 python scripts/verify_foxit_envelope.py your-real-email@example.com
 python scripts/verify_nlu_frontdoor.py "your test request text"
 python scripts/verify_auto_expire_demo.py
+python scripts/verify_audit_chain_endpoint.py <a real warrant_id>
+python scripts/verify_stretch_document_routes.py   # needs npm run start already running, see below
 
-# Web (Next.js) — Phase 6. Defaults to a mock backend (no Xano needed);
-# see apps/web/.env.local.example for switching to a real Xano workspace
-# once docs/xano-setup.md §9a/§9b are built there.
+# Web (Next.js). Defaults to a mock backend (no Xano needed); see
+# apps/web/.env.local.example for switching to a real Xano workspace.
 npm install          # from repo root — this is an npm workspace
 cd apps/web
-npm run dev          # http://localhost:3000
+npm run build && npm run start   # production mode — what this project actually
+                                  # runs on; `npm run dev` also works but hasn't
+                                  # been the tested path recently
+# http://localhost:3000
 
-# E2E (Phase 6) — real browser test, not just pytest. See
+# Deploying — see docs/deployment.md for Vercel and Railway configs,
+# both checked in and ready.
+
+# E2E — real browser test, not just pytest. See
 # scripts/verify_phase6_frontend.sh for the full verification flow
 # (installs Playwright's Chromium, typechecks, runs pytest, then this).
 npm run test:e2e     # from repo root
