@@ -107,8 +107,10 @@ export default function ApproverPage() {
   }
 
   useEffect(() => {
+    if (apiMode() === "xano" && authLoading) return;
     refresh();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading]);
 
   async function handleSign(warrantId: string) {
     setBusy(warrantId);

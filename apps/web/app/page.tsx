@@ -92,11 +92,12 @@ export default function RequesterPage() {
   }
 
   useEffect(() => {
+    if (apiMode() === "xano" && authLoading) return;
     refreshMyWarrants();
     const tickInterval = setInterval(() => setTick((t) => t + 1), 1000);
     return () => clearInterval(tickInterval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [authLoading]);
 
   function requestExtension(source: MockWarrant) {
     setRelatedWarrantId(source.warrant_id);
@@ -362,6 +363,12 @@ export default function RequesterPage() {
                     {" "}
                     (extension of <span className="mono">{w.request.related_warrant_id}</span>)
                   </>
+                )}
+              </p>
+              <p className="row" style={{ marginTop: "0.5rem", marginBottom: 0, gap: "0.75rem" }}>
+                <Link href={`/audit/${w.warrant_id}`}>View audit trail →</Link>
+                {w.status === "active" && (
+                  <Link href={`/resource/${encodeURIComponent(w.request.resource)}`}>Try accessing "{w.request.resource}" →</Link>
                 )}
               </p>
               {w.status === "active" && (
