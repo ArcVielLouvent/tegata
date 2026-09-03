@@ -15,6 +15,14 @@ this and is proud of it, not someone reading captions.
 **Total estimated runtime if you keep everything: ~7-8 minutes.** A tight
 cut keeping only [CORE] segments: ~3 minutes.
 
+**Target length: 2-4 minutes.** Doctavian's and Xano's own challenge pages
+both explicitly ask for a "2-4 min demo video" — that's the binding limit
+for this project's target tracks, not the general Devpost "Video Demo"
+field (which has no stated limit) or Perfect Corp's separate 1-3 min ask
+(not one of our target sponsors). The [CORE]-only cut already lands right
+in that window — add [DEPTH] segments only as far as ~4 minutes allows,
+in the order listed (top of the list first).
+
 ---
 
 ## Before you hit record
@@ -39,6 +47,15 @@ cut keeping only [CORE] segments: ~3 minutes.
 6. Have `scripts/verify_audit_chain_endpoint.py` ready in a terminal, env
    vars pre-exported, so the tamper-detection segment is one command, not a
    typing session.
+7. **Regenerate the Doctavian access token manually, right before you
+   record** — it's short-lived (~1hr) and there is no working
+   `refresh_token` flow for this integration (see
+   `docs/doctavian-oauth-postman-setup.md`). Get a fresh token via
+   Postman's "Get New Access Token" and update `DOCTAVIAN_ACCESS_TOKEN` in
+   `.env` (restart `npm run start` after). Also turn **Auto-refresh
+   Token** off in Postman — leaving it on doesn't affect the demo app
+   itself, but it can throw a confusing `AADSTS900144` error mid-session
+   if you're also using Postman on camera or in a second window.
 
 ---
 
