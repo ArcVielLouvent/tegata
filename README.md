@@ -123,6 +123,10 @@ tegata/
 │   ├── tegata-concept.md   # full concept spec
 │   ├── xano-setup.md       # ordered, checklist-driven guide to build Xano's Function Stack by hand
 │   ├── xano-verification-worksheet.md  # exact input/output pairs (incl. pre-computed hashes) to verify each Xano endpoint against the Python reference
+│   ├── doctavian-oauth-postman-setup.md  # step-by-step Postman OAuth 2.0 setup for Doctavian's Entra ID token (manual regen only — no working refresh_token flow)
+│   ├── setup-instructions.md  # full setup: clone → env vars → Xano/Doctavian/Foxit credentials → run
+│   ├── deployment.md       # Vercel and Railway deployment configs
+│   ├── demo-video-script.md # beat-by-beat demo video script, timed to sponsors' 2-4 min requirement
 │   ├── doctavian-samples/  # reference materials from Doctavian (sample data, real template, Elements/Expressions PDFs) — see its own README
 │   ├── templates/          # generated .docx templates (e.g. tegata-warrant.docx)
 │   ├── benchmarks.md       # (Phase 8) benchmark results

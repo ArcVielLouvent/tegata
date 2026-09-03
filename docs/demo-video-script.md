@@ -3,17 +3,47 @@
 Every beat below has actually been reproduced and confirmed working in this
 project's own testing (not aspirational) — see `PROJECT_STATUS.md` for the
 underlying evidence of each claim if you want to double-check something
-before recording. Segments marked **[CORE]** are the spine of the story and
-shouldn't be cut. Segments marked **[DEPTH]** prove breadth beyond the core
-flow — cut these first if you're over your time limit, in the order listed
-(bottom of a DEPTH group = safest to cut).
+before recording.
+
+**Rule for every sponsor feature: show their interface, don't just say
+their name.** Naming Doctavian/Foxit/Xano in narration while the screen
+stays on Tegata's own UI reads as "we called an API," not "we genuinely
+used this product." Wherever a beat below says "cut to [sponsor]'s
+dashboard/builder/etc," that cut is required, not optional — it's the
+actual evidence a sponsor's judge is looking for.
+
+**Hard time budget: 3–4 minutes.** Confirmed directly from the hackathon
+page (api-cloud-ai-hackathon-2026.devpost.com): Doctavian's track says
+*"Demo video (2–4 min)"*, Xano's track says *"2–4 minute demo"* — both
+sponsor tracks you're targeting state this explicitly, so 4 minutes is a
+real ceiling, not a suggestion. (Perfect Corp's separate track asks for
+1–3 min instead — not one of your target sponsors, so don't let that
+shorter number pull your target down; 2–4 min is the one that applies.)
+
+Segments marked **[CORE]** get their full time on screen — this is the
+spine of the story. Segments marked **[CUTAWAY]** get **3–5 seconds each**,
+narrated over quick screen flashes while you talk through them — enough to
+prove breadth exists without spending the runway explaining each one in
+full. Do not narrate a CUTAWAY at CORE-segment length; that's how a 3-minute
+video becomes an 8-minute one.
 
 Narration is in English (international hackathon audience). Read it as a
 guide, not a script to recite word-for-word — sound like a person who built
 this and is proud of it, not someone reading captions.
 
-**Total estimated runtime if you keep everything: ~7-8 minutes.** A tight
-cut keeping only [CORE] segments: ~3 minutes.
+**Target breakdown to land inside 4:00 total:**
+- CORE segments (1–7, 13): ~3:00 — segment 4 (Doctavian + Foxit) runs
+  longest at ~55s because it now deliberately lingers on each sponsor's own
+  interface (Xano's data, the readable PDF, Foxit's iframe and branded
+  confirmation) rather than cutting past them quickly.
+- CUTAWAY segments (8–12), ~35s combined: prioritizes flashes that show a
+  sponsor's own dashboard/builder (Xano's Function Stack, Doctavian's
+  template markup), not just Tegata's resulting output.
+- Buffer for transitions/breathing room: ~0:25
+
+If you're still over after one pass, drop items 3, 5, 6 from the cutaway
+block first (see that section's own note), then cut CUTAWAY items further
+before touching CORE segments.
 
 ---
 
@@ -39,10 +69,22 @@ cut keeping only [CORE] segments: ~3 minutes.
 6. Have `scripts/verify_audit_chain_endpoint.py` ready in a terminal, env
    vars pre-exported, so the tamper-detection segment is one command, not a
    typing session.
+7. **Regenerate the Doctavian access token manually, right before you
+   record** — it's short-lived (~1hr) and there is no working
+   `refresh_token` flow for this integration — see
+   `docs/doctavian-oauth-postman-setup.md` for the exact Postman steps and
+   why the auto-refresh fails, or `docs/setup-instructions.md` for the
+   full environment setup. Get a fresh token via Postman's "Get New
+   Access Token" and update `DOCTAVIAN_ACCESS_TOKEN` in both `.env` and
+   `apps/web/.env.local` (restart `npm run start` after — env vars aren't
+   hot-reloaded). Leave Postman's "Auto-refresh Token" toggle off for the
+   recording session — it doesn't affect the demo app itself, but it can
+   throw a confusing `AADSTS900144` error in a visible Postman window if
+   you're also showing Postman on camera.
 
 ---
 
-## 1. The premise, stated once, on camera **[CORE]** — ~20s
+## 1. The premise, stated once, on camera **[CORE]** — ~15s
 
 Show the README or a title card with the core principle line:
 
@@ -57,7 +99,7 @@ manual cleanup, no forgotten permissions lying around."*
 
 ---
 
-## 2. Request → NLU → risk scoring **[CORE]** — ~40s
+## 2. Request → NLU → risk scoring **[CORE]** — ~30s
 
 As **requester A**, on the request page:
 
@@ -77,7 +119,7 @@ As **requester A**, on the request page:
 
 ---
 
-## 3. The locked resource — deny **[CORE]** — ~30s
+## 3. The locked resource — deny **[CORE]** — ~20s
 
 Switch to the browser tab already on `/resource/internal_wiki` as
 **requester A** (or navigate there fresh).
@@ -92,40 +134,55 @@ against Xano on every single request.
 
 ---
 
-## 4. Approve and sign — real Doctavian + Foxit **[CORE]** — ~60s
+## 4. Approve and sign — real Doctavian + Foxit **[CORE]** — ~55s
 
 Switch to **approver** account, Approver page.
 
 1. Point out the request in "Needs your action" — risk tier, requester
    email, ticket ref all visible.
 2. Click **"Prepare & send for e-signature."**
-3. **Say:** *"This calls Doctavian to generate the actual grant document —
-   and the clauses in that document genuinely change based on risk tier, not
-   just a cosmetic label."* (Optionally flash the two saved PDFs from
-   `phase7-smoke-output/` here as a quick cutaway if you have them handy —
-   see segment 9.)
-4. The Foxit signing iframe loads — **actually sign it** (this step must be
-   a real human action on camera, not staged — that's the whole point of
-   the project).
-5. Click **"I've signed — confirm."**
-6. Status flips to `ACTIVE`, signature count `1/1`.
+3. **Cut to Xano's own Database tab** for ~2s, showing the `warrants` row
+   that was just read to build this document — **say:** *"This is Xano's
+   real data driving what happens next, not a mock."*
+4. **Cut to the generated PDF itself, full-screen, for 3–4s** (not just a
+   thumbnail) — enough time for the risk score and the specific approval
+   clause to actually be readable on camera. **Say:** *"Doctavian just
+   generated this — and the clause here genuinely changes based on risk
+   tier, this isn't a static template with find-and-replace."* If you have
+   Doctavian's own web dashboard/document viewer open in another tab
+   showing this same document or its generation log, cut to that too —
+   showing their interface, not just the PDF output, is the stronger proof
+   this is really their engine.
+5. Back to Tegata, the **Foxit signing iframe loads** — let it fully render
+   on screen for a beat before signing, so the Foxit branding/UI inside the
+   iframe is clearly visible and readable, not just glimpsed.
+6. **Actually sign it** (this step must be a real human action on camera,
+   not staged — that's the whole point of the project).
+7. **Let the post-signing confirmation screen show fully** ("Thank you —
+   Powered by Foxit eSign", with the download link) for 2–3s before moving
+   on — don't cut away from this the instant it appears, it's Foxit's own
+   branded confirmation and one of the clearest "yes, this is really their
+   product" moments in the whole video.
+8. Click **"I've signed — confirm."**
+9. Status flips to `ACTIVE`, signature count `1/1`.
 
 ---
 
-## 5. The locked resource — grant **[CORE]** — ~20s
+## 5. The locked resource — grant **[CORE]** — ~15s
 
 Back to the `/resource/internal_wiki` tab (still as requester A) — either
 wait for its 10-second auto-poll or click **"Check again now."**
 
-**Say:** *"Same URL, same page, nothing manually refreshed on my end — it
-just picked up the state change on its own next check."*
+**Say:** *"Same URL, same page, nothing manually refreshed on my end — Xano
+gets asked fresh and it just picked up the state change on its own next
+check."*
 
 Show the **✅ Access granted** banner with the warrant ID, real expiry
 timestamp, and the confidential content underneath.
 
 ---
 
-## 6. Anti-replay — the classic "wow" moment **[CORE]** — ~25s
+## 6. Anti-replay — the classic "wow" moment **[CORE]** — ~20s
 
 Still as approver, on the now-active warrant's card, click the **"Replay
 attempt (sign again)"** button.
@@ -134,12 +191,12 @@ attempt (sign again)"** button.
 compromised session, maybe a bug somewhere upstream. Watch."*
 
 Show the rejection message: *"Warrant '...' has already been used — replay
-rejected."* — this is a real, tested check (`ReplayRejectedError`), not a
-UI-only guard.
+rejected."* — this is a real, tested check enforced by Xano's own state
+machine (`ReplayRejectedError`), not a UI-only guard.
 
 ---
 
-## 7. Auto-expiry — the loop closes itself **[CORE]** — ~15-30s
+## 7. Auto-expiry — the loop closes itself **[CORE]** — ~15s
 
 **Say:** *"And when the approved window runs out, nothing has to happen
 manually — no one has to remember to revoke this."*
@@ -154,90 +211,57 @@ signed.
 
 ---
 
-## 8. Tamper-proof audit trail **[DEPTH]** — ~45s
+## 8–12. Depth, as fast cutaways **[CUTAWAY]** — ~35s combined
 
-Click **"View audit trail →"** on the now-settled warrant.
+Pre-record or have ready as clips/screenshots so you're not live-navigating
+during this block — cut rapidly between them while one continuous narration
+line carries across all five. **Every flash below cuts to the sponsor's own
+interface, not just Tegata's UI** — that's deliberate, this is the block
+that proves depth of integration, not just breadth of feature.
 
-1. Show the entries: `requested`, `scored`, `pending_approval`,
-   `signed_and_activated` — each with its own hash, linked to the previous
-   entry's hash. Banner reads **"Hash chain intact."**
-2. Cut to the terminal: run
-   `python scripts/verify_audit_chain_endpoint.py <warrant_id>` — show
-   `PASS`.
-3. **Say:** *"Now watch what happens if someone edits history directly in
-   the database."*
-4. Cut to Xano's Database tab, hand-edit one field on one `audit_log` row.
-5. Re-run the same script — show `DISAGREEMENT` / `intact: false` with the
-   exact broken row identified. **This was independently reproduced this
-   week, including the exact broken-row index matching a second,
-   independent Python recomputation of the same chain — it's not just
-   Xano's own claim, it's cross-checked.**
+**Say, over the cuts:** *"And it goes deeper than the happy path — the
+audit trail is hash-chained in Xano and independently verified; Doctavian's
+own conditional templating progressively discloses technical details only
+after a signature exists, and generates a completely separate operator
+runbook from the same warrant; Xano's role-based access control makes one
+user's data structurally invisible to another, not just hidden by the UI;
+extending access creates a brand-new request needing its own approval; and
+Xano's own scheduled tasks health-check the whole scoring pipeline every 15
+minutes without ever cluttering a real approver's queue."*
 
----
+Flash (≤4–5s each):
+1. **Xano's Database tab**, hand-editing one `audit_log` row live, then the
+   terminal running `verify_audit_chain_endpoint.py` flipping from `PASS`
+   to `DISAGREEMENT` with the exact broken row named.
+2. **Doctavian's template — the actual `mdoc:paragraph hidden="{!$...}"`
+   conditional markup** if you can pull up their template editor/dashboard
+   for `tegata-warrant-progressive.docx`, THEN `progressive_redacted.pdf`
+   vs `progressive_full.pdf` side by side as the resulting output — showing
+   their authoring interface, not just the PDF, is what proves this is
+   really their templating engine at work.
+3. `dual_warrant.pdf` vs `dual_runbook.pdf` side by side.
+4. **Xano's Function Stack** for one RBAC-gated endpoint (e.g.
+   `GET /warrants`, showing the role-based `where` filter live in their
+   visual builder), then Requester B's "My requests" (empty/own-only) or
+   the `/audit/<A's id>` "Couldn't load this audit trail" error as the
+   resulting behavior.
+5. An extension request card labeled *"Extension of `<original warrant
+   id>`."*
+6. **Xano's Task History** for `canary_health_check` showing repeated `OK`
+   runs on its own schedule, then the Approver page's collapsed History
+   section showing that canary warrant filtered out of the real queue.
 
-## 9. Progressive disclosure + dual-audience documents **[DEPTH]** — ~40s
-
-Split-screen or quick cuts between the saved PDFs
-(`phase7-smoke-output/*.pdf`, regenerate first with
-`scripts/verify_stretch_document_routes.py` if stale):
-
-- `progressive_redacted.pdf` vs `progressive_full.pdf` — same warrant, the
-  redacted copy visibly withholds the technical execution details (the
-  literal grant command) until a first approver has actually signed.
-- `dual_warrant.pdf` vs `dual_runbook.pdf` — same warrant, two genuinely
-  different documents: one reads like a formal grant, the other like an
-  on-call runbook with copy-pasteable commands and an explicit "don't
-  manually extend this" warning.
-
-**Say:** *"Same underlying data, generated into different documents for
-different audiences and different trust levels — not just a template with
-find-and-replace."*
-
----
-
-## 10. Data isolation — RBAC that actually filters **[DEPTH]** — ~30s
-
-Switch to **requester B**.
-
-1. Show B's own "My requests" — empty or only B's own requests, never A's.
-2. Try navigating to `/audit/<A's warrant id>` directly by URL — show the
-   **"Couldn't load this audit trail"** error, not A's data.
-
-**Say:** *"This isn't hidden by the UI — the API itself won't hand back
-another user's data, whether you go through the app or call it directly."*
+If you're tight on time, keep 1, 2, and 4 first (they're the ones showing a
+sponsor's own dashboard/builder, not just Tegata's output) and drop 3, 5,
+and 6 before trimming further; even 3 flashes with the narration still
+lands both the breadth claim and "we really used your product's own
+interface."
 
 ---
 
-## 11. Extension requests **[DEPTH]** — ~25s
+## 13. Close **[CORE]** — ~10s
 
-As requester A, on an active warrant nearing expiry, click **"Request
-extension (expiring soon!)."** Show the pre-filled extension form
-referencing the original warrant ID, submit it, show the new request card
-labeled *"Extension of `<original warrant id>`."*
-
-**Say:** *"An extension is its own brand-new request that needs its own
-approval — the original grant is never silently modified."*
-
----
-
-## 12. Synthetic canary — self-monitoring **[DEPTH, optional]** — ~20s
-
-Cut to Xano's Task History for `canary_health_check`, showing repeated `OK`
-runs every 15 minutes, then to the Approver page's collapsed **History**
-section showing a `SYNTHETIC-CANARY` warrant that never cluttered the real
-queue.
-
-**Say:** *"The system tests its own scoring and hashing pipeline
-automatically, every 15 minutes, using a synthetic low-risk request — and
-it's filtered out of the real approval queue so it never gets in a real
-approver's way."*
-
----
-
-## 13. Close **[CORE]** — ~15s
-
-**Say:** *"Every piece of this — scoring, documents, signature, audit trail,
-and the access gate itself — checks itself against real, hard state every
+**Say:** *"Every piece of this checks itself against real, hard state every
 time, not against what the UI last remembered. That's Tegata."*
 
 ---
