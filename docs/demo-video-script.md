@@ -3,25 +3,34 @@
 Every beat below has actually been reproduced and confirmed working in this
 project's own testing (not aspirational) — see `PROJECT_STATUS.md` for the
 underlying evidence of each claim if you want to double-check something
-before recording. Segments marked **[CORE]** are the spine of the story and
-shouldn't be cut. Segments marked **[DEPTH]** prove breadth beyond the core
-flow — cut these first if you're over your time limit, in the order listed
-(bottom of a DEPTH group = safest to cut).
+before recording.
+
+**Hard time budget: 3–4 minutes.** Confirmed directly from the hackathon
+page (api-cloud-ai-hackathon-2026.devpost.com): Doctavian's track says
+*"Demo video (2–4 min)"*, Xano's track says *"2–4 minute demo"* — both
+sponsor tracks you're targeting state this explicitly, so 4 minutes is a
+real ceiling, not a suggestion. (Perfect Corp's separate track asks for
+1–3 min instead — not one of your target sponsors, so don't let that
+shorter number pull your target down; 2–4 min is the one that applies.)
+
+Segments marked **[CORE]** get their full time on screen — this is the
+spine of the story. Segments marked **[CUTAWAY]** get **3–5 seconds each**,
+narrated over quick screen flashes while you talk through them — enough to
+prove breadth exists without spending the runway explaining each one in
+full. Do not narrate a CUTAWAY at CORE-segment length; that's how a 3-minute
+video becomes an 8-minute one.
 
 Narration is in English (international hackathon audience). Read it as a
 guide, not a script to recite word-for-word — sound like a person who built
 this and is proud of it, not someone reading captions.
 
-**Total estimated runtime if you keep everything: ~7-8 minutes.** A tight
-cut keeping only [CORE] segments: ~3 minutes.
+**Target breakdown to land inside 4:00 total:**
+- CORE segments (1–7, 13): ~2:45
+- CUTAWAY segments (8–12), ~15–20s combined: ~0:20–0:30 total, not per item
+- Buffer for transitions/breathing room: ~0:30
 
-**Target length: 2-4 minutes.** Doctavian's and Xano's own challenge pages
-both explicitly ask for a "2-4 min demo video" — that's the binding limit
-for this project's target tracks, not the general Devpost "Video Demo"
-field (which has no stated limit) or Perfect Corp's separate 1-3 min ask
-(not one of our target sponsors). The [CORE]-only cut already lands right
-in that window — add [DEPTH] segments only as far as ~4 minutes allows,
-in the order listed (top of the list first).
+If you're still over after one pass, cut CUTAWAY items from the bottom of
+the list first (12 → 11 → 10 → 9 → 8), not CORE segments.
 
 ---
 
@@ -49,17 +58,20 @@ in the order listed (top of the list first).
    typing session.
 7. **Regenerate the Doctavian access token manually, right before you
    record** — it's short-lived (~1hr) and there is no working
-   `refresh_token` flow for this integration (see
-   `docs/doctavian-oauth-postman-setup.md`). Get a fresh token via
-   Postman's "Get New Access Token" and update `DOCTAVIAN_ACCESS_TOKEN` in
-   `.env` (restart `npm run start` after). Also turn **Auto-refresh
-   Token** off in Postman — leaving it on doesn't affect the demo app
-   itself, but it can throw a confusing `AADSTS900144` error mid-session
-   if you're also using Postman on camera or in a second window.
+   `refresh_token` flow for this integration — see
+   `docs/doctavian-oauth-postman-setup.md` for the exact Postman steps and
+   why the auto-refresh fails, or `docs/setup-instructions.md` for the
+   full environment setup. Get a fresh token via Postman's "Get New
+   Access Token" and update `DOCTAVIAN_ACCESS_TOKEN` in both `.env` and
+   `apps/web/.env.local` (restart `npm run start` after — env vars aren't
+   hot-reloaded). Leave Postman's "Auto-refresh Token" toggle off for the
+   recording session — it doesn't affect the demo app itself, but it can
+   throw a confusing `AADSTS900144` error in a visible Postman window if
+   you're also showing Postman on camera.
 
 ---
 
-## 1. The premise, stated once, on camera **[CORE]** — ~20s
+## 1. The premise, stated once, on camera **[CORE]** — ~15s
 
 Show the README or a title card with the core principle line:
 
@@ -74,7 +86,7 @@ manual cleanup, no forgotten permissions lying around."*
 
 ---
 
-## 2. Request → NLU → risk scoring **[CORE]** — ~40s
+## 2. Request → NLU → risk scoring **[CORE]** — ~30s
 
 As **requester A**, on the request page:
 
@@ -94,7 +106,7 @@ As **requester A**, on the request page:
 
 ---
 
-## 3. The locked resource — deny **[CORE]** — ~30s
+## 3. The locked resource — deny **[CORE]** — ~20s
 
 Switch to the browser tab already on `/resource/internal_wiki` as
 **requester A** (or navigate there fresh).
@@ -109,7 +121,7 @@ against Xano on every single request.
 
 ---
 
-## 4. Approve and sign — real Doctavian + Foxit **[CORE]** — ~60s
+## 4. Approve and sign — real Doctavian + Foxit **[CORE]** — ~50s
 
 Switch to **approver** account, Approver page.
 
@@ -129,7 +141,7 @@ Switch to **approver** account, Approver page.
 
 ---
 
-## 5. The locked resource — grant **[CORE]** — ~20s
+## 5. The locked resource — grant **[CORE]** — ~15s
 
 Back to the `/resource/internal_wiki` tab (still as requester A) — either
 wait for its 10-second auto-poll or click **"Check again now."**
@@ -142,7 +154,7 @@ timestamp, and the confidential content underneath.
 
 ---
 
-## 6. Anti-replay — the classic "wow" moment **[CORE]** — ~25s
+## 6. Anti-replay — the classic "wow" moment **[CORE]** — ~20s
 
 Still as approver, on the now-active warrant's card, click the **"Replay
 attempt (sign again)"** button.
@@ -156,7 +168,7 @@ UI-only guard.
 
 ---
 
-## 7. Auto-expiry — the loop closes itself **[CORE]** — ~15-30s
+## 7. Auto-expiry — the loop closes itself **[CORE]** — ~15s
 
 **Say:** *"And when the approved window runs out, nothing has to happen
 manually — no one has to remember to revoke this."*
@@ -171,90 +183,46 @@ signed.
 
 ---
 
-## 8. Tamper-proof audit trail **[DEPTH]** — ~45s
+## 8–12. Depth, as fast cutaways **[CUTAWAY]** — ~25s combined
 
-Click **"View audit trail →"** on the now-settled warrant.
+Pre-record or have ready as clips/screenshots so you're not live-navigating
+during this block — cut rapidly between them while one continuous narration
+line carries across all five:
 
-1. Show the entries: `requested`, `scored`, `pending_approval`,
-   `signed_and_activated` — each with its own hash, linked to the previous
-   entry's hash. Banner reads **"Hash chain intact."**
-2. Cut to the terminal: run
-   `python scripts/verify_audit_chain_endpoint.py <warrant_id>` — show
-   `PASS`.
-3. **Say:** *"Now watch what happens if someone edits history directly in
-   the database."*
-4. Cut to Xano's Database tab, hand-edit one field on one `audit_log` row.
-5. Re-run the same script — show `DISAGREEMENT` / `intact: false` with the
-   exact broken row identified. **This was independently reproduced this
-   week, including the exact broken-row index matching a second,
-   independent Python recomputation of the same chain — it's not just
-   Xano's own claim, it's cross-checked.**
+**Say, over the cuts:** *"And it goes deeper than the happy path — the
+audit trail is hash-chained and independently verified, tampering with a
+stored row gets caught automatically; documents progressively disclose
+technical details only after a signature exists; the same warrant generates
+a formal grant doc and a separate operator runbook; one user's data is
+structurally invisible to another, not just hidden by the UI; extending
+access creates a brand-new request needing its own approval; and the whole
+scoring pipeline health-checks itself every 15 minutes without ever
+cluttering a real approver's queue."*
 
----
+Flash (≤3–4s each, no need to fully read any of them on screen):
+1. Audit trail page → terminal running
+   `verify_audit_chain_endpoint.py` → `PASS`, then a hand-edited row →
+   `DISAGREEMENT` with the exact broken row named.
+2. `progressive_redacted.pdf` vs `progressive_full.pdf` side by side.
+3. `dual_warrant.pdf` vs `dual_runbook.pdf` side by side.
+4. Requester B's "My requests" (empty/own-only) or the `/audit/<A's id>`
+   "Couldn't load this audit trail" error.
+5. An extension request card labeled *"Extension of `<original warrant
+   id>`."*
+6. Xano's Task History for `canary_health_check` showing repeated `OK`
+   runs, filtered out of the real Approver queue.
 
-## 9. Progressive disclosure + dual-audience documents **[DEPTH]** — ~40s
-
-Split-screen or quick cuts between the saved PDFs
-(`phase7-smoke-output/*.pdf`, regenerate first with
-`scripts/verify_stretch_document_routes.py` if stale):
-
-- `progressive_redacted.pdf` vs `progressive_full.pdf` — same warrant, the
-  redacted copy visibly withholds the technical execution details (the
-  literal grant command) until a first approver has actually signed.
-- `dual_warrant.pdf` vs `dual_runbook.pdf` — same warrant, two genuinely
-  different documents: one reads like a formal grant, the other like an
-  on-call runbook with copy-pasteable commands and an explicit "don't
-  manually extend this" warning.
-
-**Say:** *"Same underlying data, generated into different documents for
-different audiences and different trust levels — not just a template with
-find-and-replace."*
+If you're tight on time, this whole block can shrink further by dropping
+individual flashes (keep 1 and 2 first — audit tamper-detection and
+progressive disclosure are the strongest of the six) rather than cutting
+it entirely; even 2–3 flashes with the narration still lands the breadth
+claim.
 
 ---
 
-## 10. Data isolation — RBAC that actually filters **[DEPTH]** — ~30s
+## 13. Close **[CORE]** — ~10s
 
-Switch to **requester B**.
-
-1. Show B's own "My requests" — empty or only B's own requests, never A's.
-2. Try navigating to `/audit/<A's warrant id>` directly by URL — show the
-   **"Couldn't load this audit trail"** error, not A's data.
-
-**Say:** *"This isn't hidden by the UI — the API itself won't hand back
-another user's data, whether you go through the app or call it directly."*
-
----
-
-## 11. Extension requests **[DEPTH]** — ~25s
-
-As requester A, on an active warrant nearing expiry, click **"Request
-extension (expiring soon!)."** Show the pre-filled extension form
-referencing the original warrant ID, submit it, show the new request card
-labeled *"Extension of `<original warrant id>`."*
-
-**Say:** *"An extension is its own brand-new request that needs its own
-approval — the original grant is never silently modified."*
-
----
-
-## 12. Synthetic canary — self-monitoring **[DEPTH, optional]** — ~20s
-
-Cut to Xano's Task History for `canary_health_check`, showing repeated `OK`
-runs every 15 minutes, then to the Approver page's collapsed **History**
-section showing a `SYNTHETIC-CANARY` warrant that never cluttered the real
-queue.
-
-**Say:** *"The system tests its own scoring and hashing pipeline
-automatically, every 15 minutes, using a synthetic low-risk request — and
-it's filtered out of the real approval queue so it never gets in a real
-approver's way."*
-
----
-
-## 13. Close **[CORE]** — ~15s
-
-**Say:** *"Every piece of this — scoring, documents, signature, audit trail,
-and the access gate itself — checks itself against real, hard state every
+**Say:** *"Every piece of this checks itself against real, hard state every
 time, not against what the UI last remembered. That's Tegata."*
 
 ---
