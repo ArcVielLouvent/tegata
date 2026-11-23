@@ -16,7 +16,7 @@ npm run build && npm run start
 # http://localhost:3000
 ```
 
-The web app defaults to a mock backend. See `apps/web/.env.local.example for switching to a real Xano workspace. The Python agent has 137 tests (`cd apps/agent && pip install -r requirements.txt && pytest`).
+The web app defaults to a mock backend. See `apps/web/.env.local.example` for switching to a real Xano workspace. The Python agent has 137 tests (`cd apps/agent && pip install -r requirements.txt && pytest`).
 
 ---
 
