@@ -7,7 +7,9 @@ A time-boxed privileged access authorization system. Every request is distilled 
 > **What the human signs is exactly what the machine executes.**
 > No hidden payload. The AI proposes, the system (hard validation) decides.
 
-**Try it locally in mock mode (no API keys needed):**
+**Live demo:** https://tegata-production.up.railway.app/
+
+**Or run it locally in mock mode (no API keys needed):**
 
 ```bash
 npm install          # from repo root — this is an npm workspace
@@ -206,4 +208,4 @@ Built for the **DevNetwork [API + Cloud + AI] Hackathon 2026**, targeting the Xa
 
 ## License
 
-No license file has been added yet, so all rights are reserved until one is chosen.
+Apache License 2.0. See the `LICENSE` file.
