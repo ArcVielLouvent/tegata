@@ -2,29 +2,21 @@
 
 > *"Every access is a journey. Every journey needs a tegata."*
 
-A time-boxed privileged access authorization system, where every request is distilled into a risk-scored document, signed by a human before any critical action happens, and automatically expires without needing manual revocation.
-
-Built for the **DevNetwork [API + Cloud + AI] Hackathon 2026** — targeting the **Xano**, **Foxit Software**, and **Doctavian** tracks, and eligible for **Overall Winner**.
-
----
-
-## Why the name "Tegata"?
-
-**Tegata (手形)** is a Japanese word carrying two stacked meanings that fit this project almost literally:
-
-1. **Travel permit** — during the Edo period, a *tsūkō tegata* (通行手形) was a document required for travelers to pass through a *sekisho* (checkpoint). Officials verified its authenticity and only allowed passage within what was written on it.
-2. **Handprint / signature** — the historical root of the word is a document authenticated by a handprint as a mark of agreement.
-
-This system is literally a combination of both: a document authenticated by a signature, functioning as a scope- and time-limited pass, checked at a digital "checkpoint" before access is granted.
-
-Full concept write-up in [`docs/tegata-concept.md`](docs/tegata-concept.md).
-
----
-
-## Core Principle
+A time-boxed privileged access authorization system. Every request is distilled into a risk-scored document, signed by a human before any critical action happens, and automatically expires without manual revocation.
 
 > **What the human signs is exactly what the machine executes.**
 > No hidden payload. The AI proposes, the system (hard validation) decides.
+
+**Try it locally in mock mode (no API keys needed):**
+
+```bash
+npm install          # from repo root — this is an npm workspace
+cd apps/web
+npm run build && npm run start
+# http://localhost:3000
+```
+
+The web app defaults to a mock backend. See `apps/web/.env.local.example for switching to a real Xano workspace. The Python agent has 137 tests (`cd apps/agent && pip install -r requirements.txt && pytest`).
 
 ---
 
@@ -77,8 +69,6 @@ automatically, without anyone touching the database).
 
 ## What's built (Phase 7, current)
 
-Beyond the core flow above:
-
 - **RBAC across every endpoint** — a `requester` only ever sees their own
   requests and audit trail; role-gated actions (transitioning a warrant,
   attaching an envelope, confirming a signature) reject anyone but
@@ -110,6 +100,19 @@ Beyond the core flow above:
 
 See `docs/demo-video-script.md` for a full walkthrough of all of the above,
 and `PROJECT_STATUS.md` for the underlying evidence behind each claim.
+
+---
+
+## Why the name "Tegata"?
+
+**Tegata (手形)** is a Japanese word carrying two stacked meanings that fit this project almost literally:
+
+1. **Travel permit** — during the Edo period, a *tsūkō tegata* (通行手形) was a document required for travelers to pass through a *sekisho* (checkpoint). Officials verified its authenticity and only allowed passage within what was written on it.
+2. **Handprint / signature** — the historical root of the word is a document authenticated by a handprint as a mark of agreement.
+
+This system is literally a combination of both: a document authenticated by a signature, functioning as a scope- and time-limited pass, checked at a digital "checkpoint" before access is granted.
+
+Full concept write-up in [`docs/tegata-concept.md`](docs/tegata-concept.md).
 
 ---
 
@@ -147,9 +150,9 @@ tegata/
 
 ---
 
-## Sponsor Credentials & Prerequisites
+## Integrations & Credentials
 
-| Sponsor | Status |
+| Integration | Status |
 |---|---|
 | **Doctavian** | Credentials received. Integration built and **confirmed working end-to-end**: risk-scored documents generate with genuinely different approval clauses per tier, plus progressive-disclosure and dual-audience document generation (Phase 7), using Doctavian's own `{!fieldname}`/`{!$expression}`/`mdoc:paragraph` templating syntax (confirmed directly by their engineering team — see `docs/doctavian-samples/`). |
 | **Foxit** | eSign API credentials received. Integration built and **confirmed working end-to-end**: envelope creation, real signature round-trip (including a genuinely rejected replay attempt), status polling, and signed-file download all verified against the live API. |
@@ -159,7 +162,7 @@ tegata/
 
 ---
 
-## Running the Project
+## Running the Full Project
 
 ```bash
 # Agent (Python) — 137 tests
@@ -175,24 +178,14 @@ python scripts/verify_foxit_envelope.py your-real-email@example.com
 python scripts/verify_nlu_frontdoor.py "your test request text"
 python scripts/verify_auto_expire_demo.py
 python scripts/verify_audit_chain_endpoint.py <a real warrant_id>
-python scripts/verify_stretch_document_routes.py   # needs npm run start already running, see below
-
-# Web (Next.js). Defaults to a mock backend (no Xano needed); see
-# apps/web/.env.local.example for switching to a real Xano workspace.
-npm install          # from repo root — this is an npm workspace
-cd apps/web
-npm run build && npm run start   # production mode — what this project actually
-                                  # runs on; `npm run dev` also works but hasn't
-                                  # been the tested path recently
-# http://localhost:3000
-
-# Deploying — see docs/deployment.md for Vercel and Railway configs,
-# both checked in and ready.
+python scripts/verify_stretch_document_routes.py   # needs npm run start already running
 
 # E2E — real browser test, not just pytest. See
 # scripts/verify_phase6_frontend.sh for the full verification flow
 # (installs Playwright's Chromium, typechecks, runs pytest, then this).
 npm run test:e2e     # from repo root
+
+# Deploying — see docs/deployment.md for Vercel and Railway configs.
 ```
 
 ## Phase Status Sync
@@ -203,18 +196,14 @@ npm run test:e2e     # from repo root
 ./scripts/phase-sync.sh status                 # status table for all phases
 ```
 
----
-
-## Build Status
-
-See [`PROJECT_STATUS.md`](PROJECT_STATUS.md) for the current phase checklist and locked-in decisions.
-
-## Full Roadmap
-
-See [`ROADMAP.md`](ROADMAP.md) for per-phase scope, "done when" criteria, and test strategy.
+See [`PROJECT_STATUS.md`](PROJECT_STATUS.md) for the current phase checklist and [`ROADMAP.md`](ROADMAP.md) for per-phase scope and test strategy.
 
 ---
+
+## Hackathon Context
+
+Built for the **DevNetwork [API + Cloud + AI] Hackathon 2026**, targeting the Xano, Foxit Software and Doctavian tracks.
 
 ## License
 
-TBD (fill in per submission requirements — check whether the hackathon requires a specific open-source license for public repos).
+No license file has been added yet, so all rights are reserved until one is chosen.
