@@ -217,4 +217,4 @@ See [`ROADMAP.md`](ROADMAP.md) for per-phase scope, "done when" criteria, and te
 
 ## License
 
-TBD (fill in per submission requirements — check whether the hackathon requires a specific open-source license for public repos).
+Apache License 2.0. See the [`LICENSE`](LICENSE) file.
